@@ -36,6 +36,8 @@ if grep -q 'tac/apm-patches\|TAC_DIR/apm-patches' scripts/build-apm.sh; then
 fi
 grep -q 'pyinstaller' scripts/build-apm.sh \
 	|| fail "build-apm.sh should use PyInstaller to build a sidecar executable"
+grep -q -- '--python "$APM_BUILD_PYTHON"' scripts/build-apm.sh \
+	|| fail "build-apm.sh should pin uv/PyInstaller Python through APM_BUILD_PYTHON"
 grep -q 'apm_cli.cli' scripts/build-apm.sh \
 	|| fail "build-apm.sh should package apm_cli.cli"
 grep -q -- '--copy-metadata apm-cli' scripts/build-apm.sh \

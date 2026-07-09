@@ -60,6 +60,11 @@ done
 command -v uv >/dev/null   || { echo "build-apm.sh: uv required on release builder (install: curl -LsSf https://astral.sh/uv/install.sh | sh)" >&2; exit 1; }
 command -v git >/dev/null  || { echo "build-apm.sh: git required" >&2; exit 1; }
 
+# pydantic-core 2.33.x pulls PyO3 0.24.x, which supports Python up to 3.13.
+# GitHub hosted macOS images may expose Homebrew Python 3.14 first; pin the
+# PyInstaller environment to 3.13 unless the release builder explicitly opts out.
+APM_BUILD_PYTHON="${APM_BUILD_PYTHON:-3.13}"
+
 APM_VERSION=$(cat "$PATCH_DIR/APM_VERSION")
 [ -n "$APM_VERSION" ] || { echo "build-apm.sh: $PATCH_DIR/APM_VERSION is empty" >&2; exit 1; }
 echo ">> build-apm.sh: upstream pin = $APM_VERSION"
@@ -116,10 +121,10 @@ if __name__ == "__main__":
     sys.exit(main())
 PY
 
-echo ">> building standalone apm executable via pyinstaller"
+echo ">> building standalone apm executable via pyinstaller (python $APM_BUILD_PYTHON)"
 PYI_DIST="$WORK/pyinstaller-dist"
 PYI_BUILD="$WORK/pyinstaller-build"
-(cd "$WORK/src" && uv run --with pyinstaller --with "$WORK/src" \
+(cd "$WORK/src" && uv run --python "$APM_BUILD_PYTHON" --with pyinstaller --with "$WORK/src" \
 	pyinstaller --onefile --name apm \
 		--distpath "$PYI_DIST" \
 		--workpath "$PYI_BUILD" \
