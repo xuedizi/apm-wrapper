@@ -1,0 +1,99 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*-tac.v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, for example v0.13.0-tac.v0.1.0"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            exe: apm
+            artifact: apm-linux-amd64
+          - platform: darwin/arm64
+            runner: macos-14
+            exe: apm
+            artifact: apm-darwin-arm64
+          - platform: windows/amd64
+            runner: windows-latest
+            exe: apm.exe
+            artifact: apm-windows-amd64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        shell: bash
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      - name: Build APM sidecar
+        shell: bash
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          scripts/build-apm.sh --out dist/raw
+          dist/raw/${{ matrix.exe }} --version
+      - name: Package sidecar
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          fi
+          scripts/package-release.sh \
+            --version "$version" \
+            --platform "${{ matrix.platform }}" \
+            --input "dist/raw/${{ matrix.exe }}" \
+            --out dist/release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/release/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/release
+          merge-multiple: true
+      - name: Generate manifest
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          fi
+          upstream=$(cat patches/APM_VERSION)
+          scripts/generate-manifest.sh \
+            --version "$version" \
+            --upstream "$upstream" \
+            --dir dist/release \
+            --out dist/release/apm-manifest.json
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          fi
+          gh release create "$version" dist/release/* \
+            --title "apm-wrapper $version" \
+            --notes "Patched microsoft/apm sidecar release for TAC."
