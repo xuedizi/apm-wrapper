@@ -22,31 +22,89 @@ jobs:
       matrix:
         include:
           - platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
+            runner_arch: X64
+            python_machine: x86_64
             exe: apm
             artifact: apm-linux-amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            runner_arch: ARM64
+            python_machine: aarch64
+            exe: apm
+            artifact: apm-linux-arm64
+          - platform: darwin/amd64
+            runner: macos-15-intel
+            runner_arch: X64
+            python_machine: x86_64
+            exe: apm
+            artifact: apm-darwin-amd64
           - platform: darwin/arm64
-            runner: macos-14
+            runner: macos-15
+            runner_arch: ARM64
+            python_machine: arm64
             exe: apm
             artifact: apm-darwin-arm64
           - platform: windows/amd64
-            runner: windows-latest
+            runner: windows-2025
+            runner_arch: X64
+            python_machine: AMD64
             exe: apm.exe
             artifact: apm-windows-amd64
+          - platform: windows/arm64
+            runner: windows-11-arm
+            runner_arch: ARM64
+            python_machine: ARM64
+            exe: apm.exe
+            artifact: apm-windows-arm64
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      - name: Check required tools
         shell: bash
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        run: |
+          for tool in bash tar mktemp git python uv; do
+            command -v "$tool" >/dev/null || {
+              echo "missing required tool: $tool" >&2
+              exit 1
+            }
+          done
+      - name: Verify native runner architecture
+        shell: bash
+        run: |
+          if [ "$RUNNER_ARCH" != "${{ matrix.runner_arch }}" ]; then
+            echo "runner architecture mismatch: expected ${{ matrix.runner_arch }}, got $RUNNER_ARCH" >&2
+            exit 1
+          fi
+          python_machine=$(python -c 'import platform; print(platform.machine())')
+          if [ "$python_machine" != "${{ matrix.python_machine }}" ]; then
+            echo "Python architecture mismatch: expected ${{ matrix.python_machine }}, got $python_machine" >&2
+            exit 1
+          fi
+          echo "ARCH_EVIDENCE platform=${{ matrix.platform }} runner=$RUNNER_ARCH python=$python_machine"
       - name: Build APM sidecar
         shell: bash
         run: |
-          export PATH="$HOME/.local/bin:$PATH"
           scripts/build-apm.sh --out dist/raw
-          dist/raw/${{ matrix.exe }} --version
+      - name: Verify executable architecture
+        shell: bash
+        run: |
+          binary_evidence=$(python scripts/verify-executable-arch.py \
+            --platform "${{ matrix.platform }}" \
+            --file "dist/raw/${{ matrix.exe }}")
+          read -r format_field machine_field _ <<<"$binary_evidence"
+          format=${format_field#format=}
+          machine=${machine_field#machine=}
+          echo "BINARY_EVIDENCE platform=${{ matrix.platform }} format=$format machine=$machine"
+      - name: Run native version smoke test
+        shell: bash
+        run: |
+          apm_version=$("dist/raw/${{ matrix.exe }}" --version)
+          echo "SMOKE_EVIDENCE platform=${{ matrix.platform }} version=$apm_version"
       - name: Package sidecar
         shell: bash
         run: |
@@ -73,8 +131,25 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          path: dist/release
-          merge-multiple: true
+          path: dist/downloads
+      - name: Verify downloaded archives
+        shell: bash
+        run: python3 scripts/verify-release.py --archives-only --downloads dist/downloads
+      - name: Stage exact release archives
+        shell: bash
+        run: |
+          mkdir -p dist/release
+          artifacts=(
+            apm-linux-amd64
+            apm-linux-arm64
+            apm-darwin-amd64
+            apm-darwin-arm64
+            apm-windows-amd64
+            apm-windows-arm64
+          )
+          for artifact in "${artifacts[@]}"; do
+            cp "dist/downloads/$artifact/$artifact.tar.gz" dist/release/
+          done
       - name: Generate manifest
         shell: bash
         run: |
@@ -88,6 +163,19 @@ jobs:
             --upstream "$upstream" \
             --dir dist/release \
             --out dist/release/apm-manifest.json
+      - name: Verify manifest and staged release
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          fi
+          upstream=$(cat patches/APM_VERSION)
+          python3 scripts/verify-release.py \
+            --manifest dist/release/apm-manifest.json \
+            --release-dir dist/release \
+            --version "$version" \
+            --upstream "$upstream"
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
