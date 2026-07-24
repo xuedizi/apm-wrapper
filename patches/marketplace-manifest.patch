@@ -1,0 +1,92 @@
+diff --git a/src/apm_cli/commands/marketplace/__init__.py b/src/apm_cli/commands/marketplace/__init__.py
+index 2603195..602c78d 100644
+--- a/src/apm_cli/commands/marketplace/__init__.py
++++ b/src/apm_cli/commands/marketplace/__init__.py
+@@ -393,8 +393,17 @@ def _marketplace_add_unsupported_host_error(
+ @click.option("--name", "-n", default=None, help="Display name (defaults to repo name)")
+ @click.option("--branch", "-b", default="main", show_default=True, help="Branch to use")
+ @click.option("--host", default=None, help="Git host FQDN (default: github.com)")
++@click.option(
++    "--manifest",
++    "manifest_path",
++    default=None,
++    help=(
++        "Manifest path within the repo (e.g. configs/my-catalog.json). "
++        "Overrides auto-detection of marketplace.json."
++    ),
++)
+ @click.option("--verbose", "-v", is_flag=True, help="Show detailed output")
+-def add(repo, name, branch, host, verbose):
++def add(repo, name, branch, host, manifest_path, verbose):
+     """Register a marketplace from OWNER/REPO, HOST/OWNER/.../REPO, or an HTTPS URL."""
+     logger = CommandLogger("marketplace-add", verbose=verbose)
+     try:
+@@ -462,25 +471,50 @@ def add(repo, name, branch, host, verbose):
+             )
+             sys.exit(1)
+ 
+-        # Probe for the marketplace.json location. The probe source's name
+-        # is a placeholder -- _auto_detect_path only consults host/owner/repo.
+-        probe_source = MarketplaceSource(
+-            name=name or repo_name,
+-            owner=owner,
+-            repo=repo_name,
+-            branch=branch,
+-            host=resolved_host,
+-        )
+-        detected_path = _auto_detect_path(probe_source)
+-
+-        if detected_path is None:
+-            logger.error(
+-                f"No marketplace.json found in '{owner}/{repo_name}'. "
+-                f"Checked: marketplace.json, .github/plugin/marketplace.json, "
+-                f".claude-plugin/marketplace.json",
+-                symbol="error",
++        # Resolve the manifest location. An explicit --manifest overrides
++        # auto-detection so a marketplace can live at a custom directory /
++        # filename (e.g. GitLab repos with configs/my-catalog.json). When the
++        # flag is omitted we probe the conventional locations as before.
++        if manifest_path is not None:
++            detected_path = manifest_path.strip()
++            if not detected_path:
++                logger.error(
++                    "--manifest must not be empty.",
++                    symbol="error",
++                )
++                sys.exit(1)
++            try:
++                validate_path_segments(
++                    detected_path, context="marketplace manifest path", reject_empty=True
++                )
++            except PathTraversalError:
++                logger.error(
++                    f"Invalid --manifest path '{manifest_path}': contains a "
++                    f"path-traversal sequence. Remove '..', '.', or '~' from "
++                    f"each path segment.",
++                    symbol="error",
++                )
++                sys.exit(1)
++        else:
++            # Probe for the marketplace.json location. The probe source's name
++            # is a placeholder -- _auto_detect_path only consults host/owner/repo.
++            probe_source = MarketplaceSource(
++                name=name or repo_name,
++                owner=owner,
++                repo=repo_name,
++                branch=branch,
++                host=resolved_host,
+             )
+-            sys.exit(1)
++            detected_path = _auto_detect_path(probe_source)
++
++            if detected_path is None:
++                logger.error(
++                    f"No marketplace.json found in '{owner}/{repo_name}'. "
++                    f"Checked: marketplace.json, .github/plugin/marketplace.json, "
++                    f".claude-plugin/marketplace.json",
++                    symbol="error",
++                )
++                sys.exit(1)
+ 
+         # Fetch and validate the manifest before logging start, so that the
+         # success/start lines display the *final* alias the user must use.
