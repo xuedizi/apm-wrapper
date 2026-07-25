@@ -1,8 +1,8 @@
 diff --git a/src/apm_cli/compilation/agents_compiler.py b/src/apm_cli/compilation/agents_compiler.py
-index 40ce31b..56de1cb 100644
+index 52a6c1c..0b87f64 100644
 --- a/src/apm_cli/compilation/agents_compiler.py
 +++ b/src/apm_cli/compilation/agents_compiler.py
-@@ -41,6 +41,8 @@ _VSCODE_TARGET_ALIASES = ("copilot", "agents")
+@@ -44,6 +44,8 @@ _VSCODE_TARGET_ALIASES = ("copilot", "agents")
  _KNOWN_TARGETS = (  # noqa: RUF005
      "vscode",
      "claude",
@@ -12,20 +12,20 @@ index 40ce31b..56de1cb 100644
      "opencode",
      "codex",
 diff --git a/src/apm_cli/core/apm_yml.py b/src/apm_cli/core/apm_yml.py
-index 5a3aca3..72f63c6 100644
+index 91fcf8e..86cd9ab 100644
 --- a/src/apm_cli/core/apm_yml.py
 +++ b/src/apm_cli/core/apm_yml.py
-@@ -32,6 +32,8 @@ CANONICAL_TARGETS: frozenset[str] = frozenset(
-         "gemini",
-         "windsurf",
-         "agent-skills",
+@@ -25,6 +25,8 @@ from apm_cli.core.errors import (
+ CANONICAL_TARGETS: frozenset[str] = frozenset(
+     {
+         "claude",
 +        "codebuddy",  # TNV downstream: Tencent CodeBuddy (Claude-compatible IDE)
 +        "tc",  # TNV downstream: TC (Claude-compatible IDE)
-     }
- )
- 
+         "copilot",
+         "cursor",
+         "opencode",
 diff --git a/src/apm_cli/core/target_detection.py b/src/apm_cli/core/target_detection.py
-index bfcffa7..90bf0eb 100644
+index a9542d5..4cc6b1c 100644
 --- a/src/apm_cli/core/target_detection.py
 +++ b/src/apm_cli/core/target_detection.py
 @@ -53,6 +53,8 @@ def agents_alias_was_detected() -> bool:
@@ -37,7 +37,7 @@ index bfcffa7..90bf0eb 100644
      "cursor",
      "opencode",
      "codex",
-@@ -92,6 +94,8 @@ UserTargetType = Literal[
+@@ -94,6 +96,8 @@ UserTargetType = Literal[
      "vscode",
      "agents",
      "claude",
@@ -46,7 +46,7 @@ index bfcffa7..90bf0eb 100644
      "cursor",
      "opencode",
      "codex",
-@@ -126,6 +130,10 @@ def detect_target(  # noqa: PLR0911
+@@ -130,6 +134,10 @@ def detect_target(  # noqa: PLR0911
              return "vscode", "explicit --target flag"
          elif explicit_target == "claude":
              return "claude", "explicit --target flag"
@@ -57,7 +57,7 @@ index bfcffa7..90bf0eb 100644
          elif explicit_target == "cursor":
              return "cursor", "explicit --target flag"
          elif explicit_target == "opencode":
-@@ -147,6 +155,10 @@ def detect_target(  # noqa: PLR0911
+@@ -155,6 +163,10 @@ def detect_target(  # noqa: PLR0911
              return "vscode", "apm.yml target"
          elif config_target == "claude":
              return "claude", "apm.yml target"
@@ -68,7 +68,7 @@ index bfcffa7..90bf0eb 100644
          elif config_target == "cursor":
              return "cursor", "apm.yml target"
          elif config_target == "opencode":
-@@ -236,7 +248,8 @@ def should_compile_claude_md(target: CompileTargetType) -> bool:
+@@ -264,7 +276,8 @@ def should_compile_claude_md(target: CompileTargetType) -> bool:
      """
      if isinstance(target, frozenset):
          return "claude" in target
@@ -78,7 +78,7 @@ index bfcffa7..90bf0eb 100644
  
  
  def should_compile_gemini_md(target: CompileTargetType) -> bool:
-@@ -294,6 +306,8 @@ def get_target_description(target: UserTargetType) -> str:
+@@ -375,6 +388,8 @@ def get_target_description(target: UserTargetType) -> str:
      descriptions = {
          "vscode": "AGENTS.md + .github/copilot-instructions.md + .github/prompts/ + .github/agents/",
          "claude": "CLAUDE.md + .claude/commands/ + .claude/agents/ + .claude/skills/",
@@ -87,16 +87,28 @@ index bfcffa7..90bf0eb 100644
          "cursor": ".cursor/agents/ + .cursor/skills/ + .cursor/rules/",
          "opencode": "AGENTS.md + .opencode/agents/ + .opencode/commands/ + .opencode/skills/",
          "codex": "AGENTS.md + .agents/skills/ + .codex/agents/ + .codex/hooks.json",
-@@ -313,7 +327,7 @@ def get_target_description(target: UserTargetType) -> str:
+@@ -398,7 +413,19 @@ def get_target_description(target: UserTargetType) -> str:
  #: The complete set of real (non-pseudo) canonical targets.
  #: "minimal" is intentionally excluded -- it is a fallback pseudo-target.
  ALL_CANONICAL_TARGETS = frozenset(
--    {"vscode", "claude", "cursor", "opencode", "codex", "gemini", "windsurf"}
-+    {"vscode", "claude", "codebuddy", "tc", "cursor", "opencode", "codex", "gemini", "windsurf"}
+-    {"vscode", "claude", "cursor", "opencode", "codex", "gemini", "windsurf", "kiro"}
++    # TNV downstream: codebuddy + tc added (claude compile family)
++    {
++        "vscode",
++        "claude",
++        "codebuddy",
++        "tc",
++        "cursor",
++        "opencode",
++        "codex",
++        "gemini",
++        "windsurf",
++        "kiro",
++    }
  )
  
  #: Targets that the parser must accept but that are gated at runtime by
-@@ -620,6 +634,8 @@ class ResolvedTargets:
+@@ -731,6 +758,8 @@ class ResolvedTargets:
  SIGNAL_WHITELIST: list[tuple[str, str, str]] = [
      ("claude", "dir", ".claude"),
      ("claude", "file", "CLAUDE.md"),
@@ -105,7 +117,7 @@ index bfcffa7..90bf0eb 100644
      ("cursor", "dir", ".cursor"),
      ("cursor", "file", ".cursorrules"),  # legacy; .cursor/ is canonical
      ("copilot", "file", ".github/copilot-instructions.md"),
-@@ -633,6 +649,8 @@ SIGNAL_WHITELIST: list[tuple[str, str, str]] = [
+@@ -749,6 +778,8 @@ SIGNAL_WHITELIST: list[tuple[str, str, str]] = [
  # Ordered list of targets for display (excludes agent-skills meta-target).
  CANONICAL_TARGETS_ORDERED: list[str] = [
      "claude",
@@ -114,7 +126,7 @@ index bfcffa7..90bf0eb 100644
      "copilot",
      "cursor",
      "codex",
-@@ -644,6 +662,8 @@ CANONICAL_TARGETS_ORDERED: list[str] = [
+@@ -761,6 +792,8 @@ CANONICAL_TARGETS_ORDERED: list[str] = [
  # Canonical deploy directories for each target.
  CANONICAL_DEPLOY_DIRS: dict[str, str] = {
      "claude": ".claude/",
@@ -123,7 +135,7 @@ index bfcffa7..90bf0eb 100644
      "copilot": ".github/",
      "cursor": ".cursor/",
      "codex": ".codex/",
-@@ -656,6 +676,8 @@ CANONICAL_DEPLOY_DIRS: dict[str, str] = {
+@@ -774,6 +807,8 @@ CANONICAL_DEPLOY_DIRS: dict[str, str] = {
  # "needs <path>" display for inactive targets.
  CANONICAL_SIGNAL: dict[str, str] = {
      "claude": "CLAUDE.md",
@@ -133,10 +145,10 @@ index bfcffa7..90bf0eb 100644
      "cursor": ".cursor/",
      "codex": ".codex/",
 diff --git a/src/apm_cli/integration/targets.py b/src/apm_cli/integration/targets.py
-index 15ac880..4e91819 100644
+index 5889d14..fb0f5f3 100644
 --- a/src/apm_cli/integration/targets.py
 +++ b/src/apm_cli/integration/targets.py
-@@ -373,6 +373,46 @@ KNOWN_TARGETS: dict[str, TargetProfile] = {
+@@ -519,6 +519,56 @@ KNOWN_TARGETS: dict[str, TargetProfile] = {
          compile_family="claude",
          hooks_config_display=".claude/settings.json",
      ),
@@ -149,7 +161,12 @@ index 15ac880..4e91819 100644
 +        name="codebuddy",
 +        root_dir=".codebuddy",
 +        primitives={
-+            "instructions": PrimitiveMapping("rules", ".md", "claude_rules"),
++            "instructions": PrimitiveMapping(
++                "rules",
++                ".md",
++                "claude_rules",
++                output_compare=True,
++            ),
 +            "agents": PrimitiveMapping("agents", ".md", "claude_agent"),
 +            "commands": PrimitiveMapping("commands", ".md", "claude_command"),
 +            "skills": PrimitiveMapping("skills", "/SKILL.md", "skill_standard"),
@@ -168,7 +185,12 @@ index 15ac880..4e91819 100644
 +        name="tc",
 +        root_dir=".claude",
 +        primitives={
-+            "instructions": PrimitiveMapping("rules", ".md", "claude_rules"),
++            "instructions": PrimitiveMapping(
++                "rules",
++                ".md",
++                "claude_rules",
++                output_compare=True,
++            ),
 +            "agents": PrimitiveMapping("agents", ".md", "claude_agent"),
 +            "commands": PrimitiveMapping("commands", ".md", "claude_command"),
 +            "skills": PrimitiveMapping("skills", "/SKILL.md", "skill_standard"),
