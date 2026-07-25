@@ -9,7 +9,12 @@ archives such as `apm-linux-amd64.tar.gz`.
 - `*.patch`      `git apply`-compatible unified diffs. Order is **lexical**;
                  keep filenames numerically prefixed if order matters. The
                  current patches touch disjoint files, so order is irrelevant.
-    - `ide.patch`                 adds `codebuddy` / `tc` compile targets.
+    - `ide.patch`                 adds `codebuddy` / `tc` compile targets
+                                   (claude compile-family: `codebuddy` ->
+                                   `.codebuddy/`, `tc` -> `.claude/`). Also
+                                   lists both in the `--target` help text of the
+                                   `compile`, `deps`, and `install` commands so
+                                   they surface in `--help`.
     - `marketplace-manifest.patch` adds `apm marketplace add --manifest <path>`
                                    so a marketplace manifest can live at a
                                    custom directory / filename (e.g. a GitLab
