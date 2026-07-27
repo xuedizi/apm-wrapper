@@ -105,6 +105,44 @@ jobs:
         run: |
           apm_version=$("dist/raw/${{ matrix.exe }}" --version)
           echo "SMOKE_EVIDENCE platform=${{ matrix.platform }} version=$apm_version"
+      - name: Run native IDE target smoke tests
+        shell: bash
+        run: |
+          smoke_root=$(mktemp -d)
+          binary="$(pwd)/dist/raw/${{ matrix.exe }}"
+          mkdir -p \
+            "$smoke_root/package/.apm/skills/smoke" \
+            "$smoke_root/codebuddy" \
+            "$smoke_root/tc"
+          printf '%s\n' \
+            "name: ide-smoke" \
+            "version: 0.0.1" \
+            > "$smoke_root/package/apm.yml"
+          printf '%s\n' \
+            "---" \
+            "name: smoke" \
+            "description: Wrapper IDE target smoke fixture." \
+            "---" \
+            > "$smoke_root/package/.apm/skills/smoke/SKILL.md"
+          printf '%s\n' \
+            "name: codebuddy-smoke" \
+            "version: 0.0.1" \
+            > "$smoke_root/codebuddy/apm.yml"
+          printf '%s\n' \
+            "name: tc-smoke" \
+            "version: 0.0.1" \
+            > "$smoke_root/tc/apm.yml"
+          (
+            cd "$smoke_root/codebuddy"
+            "$binary" install ../package --target codebuddy
+          )
+          test -f "$smoke_root/codebuddy/.codebuddy/skills/smoke/SKILL.md"
+          (
+            cd "$smoke_root/tc"
+            "$binary" install ../package --target tc
+          )
+          test -f "$smoke_root/tc/.claude/skills/smoke/SKILL.md"
+          echo "TARGET_SMOKE_EVIDENCE platform=${{ matrix.platform }} targets=codebuddy,tc"
       - name: Package sidecar
         shell: bash
         run: |

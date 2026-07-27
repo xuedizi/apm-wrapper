@@ -15,6 +15,9 @@ pass "build-apm.sh is executable"
 [ -f patches/APM_VERSION ] || fail "patches/APM_VERSION must pin upstream microsoft/apm"
 [ -f patches/ide.patch ] || fail "patches/ide.patch must carry TAC IDE target support"
 [ ! -f patches/codebuddy.patch ] || fail "patches/codebuddy.patch should be renamed to patches/ide.patch"
+patch_names=$(find patches -maxdepth 1 -type f -name '*.patch' -exec basename {} \; | sort)
+[ "$patch_names" = "ide.patch" ] \
+	|| fail "ide.patch must be the only downstream APM patch, got: $patch_names"
 pass "patch inputs exist"
 
 grep -q '"codebuddy"' patches/ide.patch \
@@ -25,7 +28,19 @@ grep -q '"tc": ".claude/"' patches/ide.patch \
 	|| fail "tc target should deploy to .claude/"
 grep -q 'return target in ("claude", "codebuddy", "tc", "all")' patches/ide.patch \
 	|| fail "tc target should share the claude compile family"
+grep -q 'tests/unit/core/test_scope.py' patches/ide.patch \
+	|| fail "ide.patch should update upstream's exhaustive KNOWN_TARGETS test"
 pass "ide.patch supports CodeBuddy and tc IDE targets"
+
+workflow=.github/workflows/release.yml
+for forbidden in safe-ensure SAFE_ENSURE --if-missing --expect-name \
+	REGISTRY_CREATE_EVIDENCE REGISTRY_REWRITE_EVIDENCE WINDOWS_LOCK_EVIDENCE \
+	AreAccessRulesProtected; do
+	if grep -q -- "$forbidden" "$workflow"; then
+		fail "release workflow must not depend on downstream APM contract: $forbidden"
+	fi
+done
+pass "release workflow uses standard APM 0.24 contracts"
 
 scripts/build-apm.sh --help | grep -qi "build-apm" \
 	|| fail "build-apm.sh --help should print usage"
@@ -138,6 +153,10 @@ required_fragments = [
     'python scripts/verify-executable-arch.py',
     'echo "BINARY_EVIDENCE platform=${{ matrix.platform }} format=$format machine=$machine"',
     'echo "SMOKE_EVIDENCE platform=${{ matrix.platform }} version=$apm_version"',
+    '"$binary" install ../package --target codebuddy',
+    'test -f "$smoke_root/codebuddy/.codebuddy/skills/smoke/SKILL.md"',
+    '"$binary" install ../package --target tc',
+    'test -f "$smoke_root/tc/.claude/skills/smoke/SKILL.md"',
     "path: dist/downloads",
     "python3 scripts/verify-release.py --archives-only --downloads dist/downloads",
     "mkdir -p dist/release",
@@ -160,6 +179,8 @@ ordered_fragments = [
     "scripts/build-apm.sh --out dist/raw",
     "python scripts/verify-executable-arch.py",
     'apm_version=$("dist/raw/${{ matrix.exe }}" --version)',
+    '"$binary" install ../package --target codebuddy',
+    '"$binary" install ../package --target tc',
     "scripts/package-release.sh \\",
     "uses: actions/upload-artifact@v4",
 ]

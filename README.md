@@ -1,34 +1,52 @@
 # apm-wrapper
 
-`apm-wrapper` builds TAC's patched `microsoft/apm` sidecar executables.
+`apm-wrapper` builds TAC's minimally patched `microsoft/apm` sidecar
+executables.
 
-The release tag format is:
+Release tags use:
 
 ```text
 v<upstream-apm-version>-tac.v<wrapper-version>
 ```
 
-Example:
+For example, `v0.24.0-tac.v0.2.0` is built from
+`microsoft/apm@v0.24.0` as wrapper release `v0.2.0`.
 
-```text
-v0.24.0-tac.v0.2.0
+## Downstream scope
+
+The wrapper intentionally carries one downstream patch:
+
+- `ide.patch` adds the `codebuddy` and `tc` targets that upstream APM 0.24
+  does not provide. CodeBuddy deploys Claude-compatible assets under
+  `.codebuddy/`; TC shares the Claude `.claude/` layout and is explicit-only
+  so it cannot collide with Claude auto-detection or `all`.
+
+Marketplace registration, package installation, lockfiles, audit, policy
+discovery, and frozen repair use standard APM 0.24 behavior. TCLI owns
+orchestration and invokes:
+
+```bash
+apm marketplace add SOURCE --name NAME
+apm install KIT... --target TARGETS
 ```
 
-This means the sidecar is built from `microsoft/apm@v0.24.0`, with TAC patches
-applied, as wrapper release `v0.2.0`.
+During `tcli init`, the marketplace entry in TCLI's packaged defaults is
+authoritative. Re-running init reconciles the configured alias through
+standard APM replace-by-name semantics. TCLI does not require downstream
+`--if-missing`, safe-inspection, registry, or lockfile extensions.
 
 ## Layout
 
 ```text
 patches/APM_VERSION       upstream microsoft/apm tag
-patches/*.patch           TAC downstream patches
+patches/ide.patch         codebuddy / tc target support
 scripts/build-apm.sh      clone, patch, and PyInstaller-build apm / apm.exe
 scripts/package-release.sh
 scripts/generate-manifest.sh
 .github/workflows/release.yml
 ```
 
-## Local Smoke
+## Local smoke
 
 ```bash
 bash scripts/build-apm_test.sh
@@ -48,10 +66,6 @@ scripts/generate-manifest.sh \
   --out dist/release/apm-manifest.json
 ```
 
-GitHub Actions publishes `apm-<os>-<arch>.tar.gz` archives plus
-`apm-manifest.json`. TAC release jobs download these archives instead of
-building PyInstaller sidecars locally.
-
 ## Release platforms
 
 Each release contains one native executable archive for every supported
@@ -68,12 +82,8 @@ platform:
 
 The GitHub-hosted Windows ARM runner is currently in public preview.
 
-Every build records three independent architecture evidence layers before it
-can be uploaded: the GitHub runner architecture and Python
-`platform.machine()` value, the executable's native ELF/Mach-O/PE header, and
-a native `apm --version` smoke test. The release job keeps downloaded artifacts
-in their per-platform directories, verifies the exact six-archive set, stages
-only those archives, generates and verifies the checksum/size manifest, and
-only then creates the GitHub Release. This makes publishing atomic: a missing,
-extra, malformed, mismatched, or corrupted artifact prevents the release from
-being created.
+Every build records three independent architecture evidence layers before
+upload: the runner and Python architecture, the executable's native
+ELF/Mach-O/PE header, and a native `apm --version` smoke test. The release job
+verifies the exact six-archive set, stages only those archives, generates and
+verifies the checksum/size manifest, and only then creates the GitHub Release.
