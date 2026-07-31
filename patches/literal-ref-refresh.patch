@@ -1,0 +1,624 @@
+diff --git a/src/apm_cli/drift.py b/src/apm_cli/drift.py
+index c0105e8..2f6d3ce 100644
+--- a/src/apm_cli/drift.py
++++ b/src/apm_cli/drift.py
+@@ -188,9 +188,11 @@ def should_force_ref_recheck(
+         return False
+     if locked_dep is None:
+         return True
++    if detect_ref_change(dep_ref, locked_dep, update_refs=False):
++        return True
+     if update_refs:
+         return getattr(dep_ref, "ref_kind", None) == "semver"
+-    return detect_ref_change(dep_ref, locked_dep, update_refs=False)
++    return False
+ 
+ 
+ # ---------------------------------------------------------------------------
+diff --git a/src/apm_cli/install/phases/integrate.py b/src/apm_cli/install/phases/integrate.py
+index 74987a1..79b281d 100644
+--- a/src/apm_cli/install/phases/integrate.py
++++ b/src/apm_cli/install/phases/integrate.py
+@@ -257,6 +257,7 @@ def _resolve_download_strategy(
+         skip_download
+         and _dep_locked_chk
+         and _dep_locked_chk.content_hash
++        and dep_key not in ctx.expected_hash_change_deps
+         and not content_hash_already_verified
+     ):
+         from apm_cli.utils.content_hash import verify_package_hash
+diff --git a/src/apm_cli/install/phases/lockfile.py b/src/apm_cli/install/phases/lockfile.py
+index 6ce986a..3494bca 100644
+--- a/src/apm_cli/install/phases/lockfile.py
++++ b/src/apm_cli/install/phases/lockfile.py
+@@ -158,6 +158,7 @@ class LockfileBuilder:
+             self._preserve_existing_lsp_state(lockfile)
+             self._preserve_existing_local_state(lockfile)
+             self._preserve_existing_revision_pin_tags(lockfile)
++            self._preserve_existing_marketplace_provenance(lockfile)
+ 
+             # Only write when the semantic content has actually changed
+             # (avoids generated_at churn in version control).
+@@ -484,6 +485,28 @@ class LockfileBuilder:
+             ):
+                 dep.resolved_tag = prev.resolved_tag
+ 
++    def _preserve_existing_marketplace_provenance(self, lockfile: LockFile) -> None:
++        """Carry origin metadata when frozen/normal replay keeps the same bytes."""
++        existing = self.ctx.existing_lockfile
++        if not existing:
++            return
++        for key, dep in lockfile.dependencies.items():
++            prev = existing.get_dependency(key)
++            if (
++                prev is None
++                or not dep.resolved_commit
++                or dep.resolved_commit != prev.resolved_commit
++            ):
++                continue
++            if not dep.discovered_via:
++                dep.discovered_via = prev.discovered_via
++            if not dep.marketplace_plugin_name:
++                dep.marketplace_plugin_name = prev.marketplace_plugin_name
++            if not dep.source_url:
++                dep.source_url = prev.source_url
++            if not dep.source_digest:
++                dep.source_digest = prev.source_digest
++
+     def _write_if_changed(self, lockfile: LockFile, lockfile_path: Path, _LF: type) -> None:
+         # Re-read the on-disk lockfile for the semantic comparison.
+         # This is intentionally a FRESH read (not ctx.existing_lockfile)
+diff --git a/src/apm_cli/install/phases/resolve.py b/src/apm_cli/install/phases/resolve.py
+index 3ad17e8..04bf2a1 100644
+--- a/src/apm_cli/install/phases/resolve.py
++++ b/src/apm_cli/install/phases/resolve.py
+@@ -64,6 +64,37 @@ def _lockfile_has_registry_deps(existing_lockfile) -> bool:
+     )
+ 
+ 
++def _manifest_ref_changed(dep_ref, locked_dep) -> bool:
++    """Classify declared ref drift before semver resolution mutates the ref."""
++    from apm_cli.drift import detect_ref_change
++
++    return detect_ref_change(dep_ref, locked_dep, update_refs=False)
++
++
++def _locked_dependency_and_manifest_drift(existing_lockfile, dep_ref):
++    """Look up lock provenance and classify drift before ref mutation."""
++    locked_dep = (
++        existing_lockfile.get_dependency(dep_ref.get_unique_key())
++        if existing_lockfile
++        else None
++    )
++    return locked_dep, _manifest_ref_changed(dep_ref, locked_dep)
++
++
++def _semver_resolution_changed(resolution, locked_dep) -> bool:
++    """Return whether a legitimate semver re-resolution selected a new tag."""
++    if resolution is None or locked_dep is None:
++        return False
++    locked_tag = getattr(locked_dep, "resolved_tag", None) or getattr(
++        locked_dep, "resolved_ref", None
++    )
++    return bool(locked_tag and resolution.resolved_tag != locked_tag)
++
++
++def _expected_ref_change(manifest_changed, resolution, locked_dep) -> bool:
++    return manifest_changed or _semver_resolution_changed(resolution, locked_dep)
++
++
+ def _require_package_registry_feature_if_needed(registries_map, existing_lockfile) -> bool:
+     """Validate the gate and return whether registry support is needed."""
+     needs_registry = bool(registries_map) or _lockfile_has_registry_deps(existing_lockfile)
+@@ -356,7 +387,6 @@ def _resolve_dependencies(ctx: InstallContext, staging_session: ResolutionStagin
+ 
+     from apm_cli.drift import (
+         build_download_ref,
+-        detect_ref_change,
+         should_force_ref_recheck,
+     )
+ 
+@@ -514,6 +544,13 @@ def _resolve_dependencies(ctx: InstallContext, staging_session: ResolutionStagin
+                     _tui.task_failed(dep_ref.get_unique_key())
+                 return None
+ 
++            _locked_dep, _manifest_changed = _locked_dependency_and_manifest_drift(
++                existing_lockfile,
++                dep_ref,
++            )
++            # Capture declared drift before semver resolution rewrites the
++            # constraint in dep_ref.reference to a concrete tag.
++
+             # --- Git-source semver range resolution (issue #1488) ---
+             # When the manifest carries a semver range as ``ref:`` and
+             # the dep is non-local, non-registry, and non-proxy, resolve
+@@ -541,14 +578,11 @@ def _resolve_dependencies(ctx: InstallContext, staging_session: ResolutionStagin
+                 # is preserved in the resolution dataclass.
+                 dep_ref.reference = _semver_resolution.resolved_tag
+ 
+-            # T5: Use locked commit for reproducibility, unless the manifest
+-            # ref has drifted from what the lockfile recorded (spec drift).
+-            _locked_dep = (
+-                existing_lockfile.get_dependency(dep_ref.get_unique_key())
+-                if existing_lockfile
+-                else None
++            _ref_changed = _expected_ref_change(
++                _manifest_changed,
++                _semver_resolution,
++                _locked_dep,
+             )
+-            _ref_changed = detect_ref_change(dep_ref, _locked_dep, update_refs=update_refs)
+ 
+             # When ref drifts, signal downstream that a content-hash change
+             # is expected so the supply-chain check in sources.py doesn't
+diff --git a/tests/integration/test_literal_ref_refresh_convergence.py b/tests/integration/test_literal_ref_refresh_convergence.py
+new file mode 100644
+index 0000000..fb0e993
+--- /dev/null
++++ b/tests/integration/test_literal_ref_refresh_convergence.py
+@@ -0,0 +1,303 @@
++"""Hermetic full-pipeline regressions for literal-ref refresh convergence."""
++
++from __future__ import annotations
++
++import hashlib
++import shutil
++from datetime import datetime
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import patch
++
++import pytest
++import yaml
++from click.testing import CliRunner
++
++from apm_cli.cli import cli
++from apm_cli.deps.lockfile import LockedDependency, LockFile
++from apm_cli.install.phases.lockfile import LockfileBuilder
++from apm_cli.models.apm_package import (
++    APMPackage,
++    DependencyReference,
++    PackageInfo,
++    clear_apm_yml_cache,
++)
++from apm_cli.models.dependency.types import GitReferenceType, ResolvedReference
++
++_PATCH_UPDATES = "apm_cli.commands._helpers.check_for_updates"
++
++
++class _GraphDownloader:
++    """Materialise a three-repository literal-tag graph without network I/O."""
++
++    def __init__(self) -> None:
++        self.calls: list[tuple[str, str]] = []
++        self.moved_parent_tag = False
++
++    def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
++        recorder = self
++
++        def _resolved_reference(dep: DependencyReference) -> ResolvedReference:
++            ref = dep.reference or "main"
++            marker = f"{dep.repo_url}@{ref}"
++            if dep.repo_url == "acme/parent" and recorder.moved_parent_tag:
++                marker += "-moved"
++            return ResolvedReference(
++                original_ref=ref,
++                ref_type=GitReferenceType.TAG,
++                resolved_commit=hashlib.sha256(marker.encode("utf-8")).hexdigest()[:40],
++                ref_name=ref,
++            )
++
++        def _fake_download(self, repo_ref, target_path, *args, **kwargs):
++            dep = (
++                repo_ref
++                if isinstance(repo_ref, DependencyReference)
++                else DependencyReference.parse(str(repo_ref))
++            )
++            ref = dep.reference or "main"
++            recorder.calls.append((dep.repo_url, ref))
++            target_path = Path(target_path)
++            target_path.mkdir(parents=True, exist_ok=True)
++
++            version = "2.0.0" if ref == "v2.0.0" else "1.0.0"
++            dependencies: list[str] = []
++            if dep.repo_url == "acme/parent":
++                dependencies = [
++                    f"acme/child-a#v{version}",
++                    f"acme/child-b#v{version}",
++                ]
++
++            manifest = {
++                "name": dep.repo_url.rsplit("/", 1)[-1],
++                "version": version,
++                "dependencies": {"apm": dependencies, "mcp": []},
++            }
++            (target_path / "apm.yml").write_text(
++                yaml.safe_dump(manifest),
++                encoding="utf-8",
++            )
++            marker = f"{dep.repo_url}@{ref}"
++            if dep.repo_url == "acme/parent" and recorder.moved_parent_tag:
++                marker += "-moved"
++            (target_path / "payload.txt").write_text(marker + "\n", encoding="utf-8")
++
++            clear_apm_yml_cache()
++            package = APMPackage.from_apm_yml(target_path / "apm.yml")
++            return PackageInfo(
++                package=package,
++                install_path=target_path,
++                installed_at=datetime.now().isoformat(),
++                dependency_ref=dep,
++                resolved_reference=_resolved_reference(dep),
++            )
++
++        def _fake_resolve(self, repo_ref):
++            dep = (
++                repo_ref
++                if isinstance(repo_ref, DependencyReference)
++                else DependencyReference.parse(str(repo_ref))
++            )
++            return _resolved_reference(dep)
++
++        from apm_cli.deps import github_downloader
++
++        monkeypatch.setattr(
++            github_downloader.GitHubPackageDownloader,
++            "download_package",
++            _fake_download,
++        )
++        monkeypatch.setattr(
++            github_downloader.GitHubPackageDownloader,
++            "resolve_git_reference",
++            _fake_resolve,
++        )
++
++
++@pytest.fixture(autouse=True)
++def _clear_package_cache():
++    clear_apm_yml_cache()
++    yield
++    clear_apm_yml_cache()
++
++
++def _write_project(project: Path, parent_ref: str) -> None:
++    project.mkdir(parents=True, exist_ok=True)
++    (project / ".github").mkdir(exist_ok=True)
++    (project / "apm.yml").write_text(
++        yaml.safe_dump(
++            {
++                "name": "literal-refresh-consumer",
++                "version": "1.0.0",
++                "target": "copilot",
++                "dependencies": {
++                    "apm": [f"acme/parent#{parent_ref}"],
++                    "mcp": [],
++                },
++            }
++        ),
++        encoding="utf-8",
++    )
++    clear_apm_yml_cache()
++
++
++def _install(
++    runner: CliRunner,
++    project: Path,
++    monkeypatch: pytest.MonkeyPatch,
++    *args: str,
++):
++    monkeypatch.chdir(project)
++    with patch(_PATCH_UPDATES, return_value=None):
++        return runner.invoke(cli, ["install", *args], catch_exceptions=False)
++
++
++def _locked_refs(project: Path) -> dict[str, str | None]:
++    data = yaml.safe_load((project / "apm.lock.yaml").read_text(encoding="utf-8"))
++    dependencies = data["dependencies"]
++    rows = dependencies.values() if isinstance(dependencies, dict) else dependencies
++    return {row["repo_url"]: row.get("resolved_ref") for row in rows}
++
++
++def _lock_rows(project: Path) -> list[dict]:
++    data = yaml.safe_load((project / "apm.lock.yaml").read_text(encoding="utf-8"))
++    dependencies = data["dependencies"]
++    return list(dependencies.values()) if isinstance(dependencies, dict) else dependencies
++
++
++def test_changed_parent_literal_ref_converges_transitive_graph_in_one_refresh(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    project = tmp_path / "consumer"
++    runner = CliRunner()
++    downloader = _GraphDownloader()
++    downloader.install(monkeypatch)
++
++    _write_project(project, "v1.0.0")
++    first = _install(runner, project, monkeypatch)
++    assert first.exit_code == 0, first.output
++    assert _locked_refs(project) == {
++        "acme/parent": "v1.0.0",
++        "acme/child-a": "v1.0.0",
++        "acme/child-b": "v1.0.0",
++    }
++
++    _write_project(project, "v2.0.0")
++    calls_before_upgrade = len(downloader.calls)
++    upgraded = _install(runner, project, monkeypatch, "--refresh")
++    assert upgraded.exit_code == 0, upgraded.output
++    assert _locked_refs(project) == {
++        "acme/parent": "v2.0.0",
++        "acme/child-a": "v2.0.0",
++        "acme/child-b": "v2.0.0",
++    }
++    upgrade_calls = downloader.calls[calls_before_upgrade:]
++    assert sorted(upgrade_calls) == [
++        ("acme/child-a", "v2.0.0"),
++        ("acme/child-b", "v2.0.0"),
++        ("acme/parent", "v2.0.0"),
++    ]
++    for repo in ("parent", "child-a", "child-b"):
++        payload = project / "apm_modules" / "acme" / repo / "payload.txt"
++        assert "@v2.0.0" in payload.read_text(encoding="utf-8")
++
++    calls_before_noop = len(downloader.calls)
++    noop = _install(runner, project, monkeypatch, "--refresh")
++    assert noop.exit_code == 0, noop.output
++    assert len(downloader.calls) == calls_before_noop
++
++
++def test_moved_unchanged_literal_tag_fails_hash_check_and_preserves_lock(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    project = tmp_path / "consumer"
++    runner = CliRunner()
++    downloader = _GraphDownloader()
++    downloader.install(monkeypatch)
++
++    _write_project(project, "v1.0.0")
++    first = _install(runner, project, monkeypatch)
++    assert first.exit_code == 0, first.output
++    lock_path = project / "apm.lock.yaml"
++    old_lock = lock_path.read_bytes()
++
++    parent_path = project / "apm_modules" / "acme" / "parent"
++    shutil.rmtree(parent_path)
++    downloader.moved_parent_tag = True
++
++    refreshed = _install(runner, project, monkeypatch, "--refresh")
++    assert refreshed.exit_code != 0
++    assert "Content hash mismatch" in refreshed.output
++    assert not parent_path.exists()
++    assert lock_path.read_bytes() == old_lock
++
++
++def test_frozen_replay_preserves_existing_marketplace_provenance(
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    project = tmp_path / "consumer"
++    runner = CliRunner()
++    downloader = _GraphDownloader()
++    downloader.install(monkeypatch)
++
++    _write_project(project, "v2.0.0")
++    first = _install(runner, project, monkeypatch)
++    assert first.exit_code == 0, first.output
++
++    lock_path = project / "apm.lock.yaml"
++    lock_data = yaml.safe_load(lock_path.read_text(encoding="utf-8"))
++    rows = lock_data["dependencies"]
++    rows = list(rows.values()) if isinstance(rows, dict) else rows
++    parent = next(row for row in rows if row["repo_url"] == "acme/parent")
++    parent["discovered_via"] = "fixture-marketplace"
++    parent["marketplace_plugin_name"] = "fixture-parent"
++    lock_path.write_text(yaml.safe_dump(lock_data, sort_keys=False), encoding="utf-8")
++
++    frozen = _install(runner, project, monkeypatch, "--frozen")
++    assert frozen.exit_code == 0, frozen.output
++    replayed_parent = next(
++        row for row in _lock_rows(project) if row["repo_url"] == "acme/parent"
++    )
++    assert replayed_parent["discovered_via"] == "fixture-marketplace"
++    assert replayed_parent["marketplace_plugin_name"] == "fixture-parent"
++
++
++@pytest.mark.parametrize(
++    ("previous_commit", "current_commit"),
++    [
++        (None, None),
++        ("a" * 40, "b" * 40),
++    ],
++)
++def test_marketplace_provenance_is_not_inherited_without_same_nonempty_commit(
++    previous_commit: str | None,
++    current_commit: str | None,
++) -> None:
++    previous = LockedDependency(
++        repo_url="acme/parent",
++        resolved_commit=previous_commit,
++        discovered_via="fixture-marketplace",
++        marketplace_plugin_name="fixture-parent",
++        source_url="https://example.invalid/marketplace.yml",
++        source_digest="sha256:fixture",
++    )
++    current = LockedDependency(
++        repo_url="acme/parent",
++        resolved_commit=current_commit,
++    )
++    existing_lockfile = LockFile()
++    existing_lockfile.add_dependency(previous)
++    rebuilt_lockfile = LockFile()
++    rebuilt_lockfile.add_dependency(current)
++
++    LockfileBuilder(
++        SimpleNamespace(existing_lockfile=existing_lockfile)
++    )._preserve_existing_marketplace_provenance(rebuilt_lockfile)
++
++    assert current.discovered_via is None
++    assert current.marketplace_plugin_name is None
++    assert current.source_url is None
++    assert current.source_digest is None
+diff --git a/tests/unit/install/phases/test_resolve_phase_spec_drift.py b/tests/unit/install/phases/test_resolve_phase_spec_drift.py
+index c5ee1cf..8832ee1 100644
+--- a/tests/unit/install/phases/test_resolve_phase_spec_drift.py
++++ b/tests/unit/install/phases/test_resolve_phase_spec_drift.py
+@@ -18,6 +18,10 @@ import unittest
+ from dataclasses import dataclass, field
+ 
+ from apm_cli.drift import build_download_ref, detect_ref_change
++from apm_cli.install.phases.resolve import (
++    _manifest_ref_changed,
++    _semver_resolution_changed,
++)
+ from apm_cli.models.dependency.reference import DependencyReference
+ 
+ # ---------------------------------------------------------------------------
+@@ -40,6 +44,8 @@ class _LockedDep:
+     deployed_files: list[str] = field(default_factory=list)
+     content_hash: str | None = None
+     is_insecure: bool = False
++    constraint: str | None = None
++    resolved_tag: str | None = None
+ 
+     def get_unique_key(self) -> str:
+         if self.source == "local" and self.local_path:
+@@ -175,6 +181,42 @@ class TestDownloadCallbackDriftMarking(unittest.TestCase):
+         self.assertNotEqual(download_ref.reference, "aaa1111111111111111111111111111111111111")
+ 
+ 
++class TestProductionRefChangeClassification(unittest.TestCase):
++    """Exercise the production helpers called by the real BFS callback."""
++
++    def test_changed_manifest_literal_ref_is_expected(self):
++        dep = _dep(reference="v2.0.0")
++        locked = _LockedDep(resolved_ref="v1.0.0")
++
++        self.assertTrue(_manifest_ref_changed(dep, locked))
++
++    def test_unchanged_manifest_literal_ref_is_not_expected(self):
++        dep = _dep(reference="v1.0.0")
++        locked = _LockedDep(resolved_ref="v1.0.0")
++
++        self.assertFalse(_manifest_ref_changed(dep, locked))
++
++    def test_semver_new_resolved_tag_is_expected(self):
++        resolution = type("_Resolution", (), {"resolved_tag": "v1.2.0"})()
++        locked = _LockedDep(
++            resolved_ref="v1.1.0",
++            resolved_tag="v1.1.0",
++            constraint="^1.0.0",
++        )
++
++        self.assertTrue(_semver_resolution_changed(resolution, locked))
++
++    def test_semver_same_resolved_tag_is_not_expected(self):
++        resolution = type("_Resolution", (), {"resolved_tag": "v1.1.0"})()
++        locked = _LockedDep(
++            resolved_ref="v1.1.0",
++            resolved_tag="v1.1.0",
++            constraint="^1.0.0",
++        )
++
++        self.assertFalse(_semver_resolution_changed(resolution, locked))
++
++
+ # ---------------------------------------------------------------------------
+ # Tests: --refresh ctx-attribute propagation through the callback expression
+ # ---------------------------------------------------------------------------
+diff --git a/tests/unit/test_install_update_refs.py b/tests/unit/test_install_update_refs.py
+index 7089326..29bd996 100644
+--- a/tests/unit/test_install_update_refs.py
++++ b/tests/unit/test_install_update_refs.py
+@@ -342,12 +342,25 @@ def _recheck_dep(
+     is_local: bool,
+     artifactory_prefix: str | None,
+     ref_kind: str | None,
++    reference: str | None = None,
+ ) -> SimpleNamespace:
+     """Build the minimal dependency shape consumed by the canonical owner."""
+     return SimpleNamespace(
+         is_local=is_local,
+         artifactory_prefix=artifactory_prefix,
+         ref_kind=ref_kind,
++        reference=reference,
++        source="local" if is_local else None,
++        is_insecure=False,
++    )
++
++
++def _recheck_lock(*, resolved_ref: str = "v1.0.0") -> SimpleNamespace:
++    return SimpleNamespace(
++        resolved_ref=resolved_ref,
++        source=None,
++        is_insecure=False,
++        constraint=None,
+     )
+ 
+ 
+@@ -414,15 +427,33 @@ class TestForceRefRecheck:
+                     is_local=False,
+                     artifactory_prefix=None,
+                     ref_kind="literal",
++                    reference="v1.0.0",
+                 ),
+-                SimpleNamespace(),
++                _recheck_lock(),
+                 update_refs=True,
+             )
+             is False
+         )
+ 
+-    def test_local_dep_never_force_resolved(self) -> None:
+-        """Local deps are excluded regardless of ref_kind."""
++    def test_changed_git_literal_ref_forces_resolve_during_refresh(self) -> None:
++        """A changed literal tag must materialise before its manifest is parsed."""
++        assert (
++            should_force_ref_recheck(
++                _recheck_dep(
++                    is_local=False,
++                    artifactory_prefix=None,
++                    ref_kind="literal",
++                    reference="v2.0.0",
++                ),
++                _recheck_lock(resolved_ref="v1.0.0"),
++                update_refs=True,
++            )
++            is True
++        )
++
++    @pytest.mark.parametrize("locked", [None, _recheck_lock()])
++    def test_local_dep_never_force_resolved(self, locked) -> None:
++        """Local deps are excluded with and without lock provenance."""
+         assert (
+             should_force_ref_recheck(
+                 _recheck_dep(
+@@ -430,14 +461,15 @@ class TestForceRefRecheck:
+                     artifactory_prefix=None,
+                     ref_kind="semver",
+                 ),
+-                None,
++                locked,
+                 update_refs=True,
+             )
+             is False
+         )
+ 
+-    def test_artifactory_dep_never_force_resolved(self) -> None:
+-        """Artifactory-proxied deps are excluded regardless of ref_kind."""
++    @pytest.mark.parametrize("locked", [None, _recheck_lock()])
++    def test_artifactory_dep_never_force_resolved(self, locked) -> None:
++        """Artifactory-proxied deps are excluded with and without a lock."""
+         assert (
+             should_force_ref_recheck(
+                 _recheck_dep(
+@@ -445,7 +477,7 @@ class TestForceRefRecheck:
+                     artifactory_prefix="artifactory/github",
+                     ref_kind="semver",
+                 ),
+-                None,
++                locked,
+                 update_refs=True,
+             )
+             is False

@@ -12,12 +12,19 @@ pass() { echo "PASS: $*"; }
 [ -x scripts/build-apm.sh ] || fail "scripts/build-apm.sh must exist and be executable"
 pass "build-apm.sh is executable"
 
+[ -x scripts/test-patched-apm.sh ] \
+	|| fail "scripts/test-patched-apm.sh must be an executable release gate"
+
 [ -f patches/APM_VERSION ] || fail "patches/APM_VERSION must pin upstream microsoft/apm"
 [ -f patches/ide.patch ] || fail "patches/ide.patch must carry TAC IDE target support"
+[ -f patches/literal-ref-refresh.patch ] \
+	|| fail "patches/literal-ref-refresh.patch must carry single-command literal ref refresh"
+[ "$(cat patches/APM_VERSION)" = "v0.26.0" ] \
+	|| fail "patches/APM_VERSION must pin upstream v0.26.0"
 [ ! -f patches/codebuddy.patch ] || fail "patches/codebuddy.patch should be renamed to patches/ide.patch"
 patch_names=$(find patches -maxdepth 1 -type f -name '*.patch' -exec basename {} \; | sort)
-[ "$patch_names" = "ide.patch" ] \
-	|| fail "ide.patch must be the only downstream APM patch, got: $patch_names"
+[ "$patch_names" = "$(printf '%s\n' ide.patch literal-ref-refresh.patch)" ] \
+	|| fail "expected exactly ide.patch and literal-ref-refresh.patch, got: $patch_names"
 pass "patch inputs exist"
 
 grep -q '"codebuddy"' patches/ide.patch \
@@ -30,9 +37,40 @@ grep -q 'return target in ("claude", "codebuddy", "tc", "all")' patches/ide.patc
 	|| fail "tc target should share the claude compile family"
 grep -q 'tests/unit/core/test_scope.py' patches/ide.patch \
 	|| fail "ide.patch should update upstream's exhaustive KNOWN_TARGETS test"
+grep -q 'src/apm_cli/integration/base_integrator.py' patches/ide.patch \
+	|| fail "ide.patch should preserve shared .claude partition routing for TC"
+grep -q 'tests/unit/core/test_target_catalog.py' patches/ide.patch \
+	|| fail "ide.patch should update upstream's complete target catalog characterization"
 pass "ide.patch supports CodeBuddy and tc IDE targets"
 
+grep -q 'src/apm_cli/drift.py' patches/literal-ref-refresh.patch \
+	|| fail "literal ref refresh patch should own the canonical ref-recheck gate"
+grep -q 'src/apm_cli/install/phases/resolve.py' patches/literal-ref-refresh.patch \
+	|| fail "literal ref refresh patch should wire resolve-time hash expectations"
+grep -q 'src/apm_cli/install/phases/lockfile.py' patches/literal-ref-refresh.patch \
+	|| fail "literal ref refresh patch should preserve frozen marketplace provenance"
+grep -q 'tests/integration/test_literal_ref_refresh_convergence.py' \
+	patches/literal-ref-refresh.patch \
+	|| fail "literal ref refresh patch should carry its hermetic convergence regression"
+pass "literal ref refresh patch carries source and regression coverage"
+
 workflow=.github/workflows/release.yml
+grep -q '^  patch-tests:$' "$workflow" \
+	|| fail "release workflow must define a patch-tests job"
+grep -q 'scripts/test-patched-apm.sh' "$workflow" \
+	|| fail "release workflow patch-tests job must run the patched upstream regressions"
+python3 - "$workflow" <<'PY'
+from pathlib import Path
+import re
+import sys
+
+workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
+build = re.search(r"(?ms)^  build:\n(?P<body>.*?)(?=^  [a-z][a-z-]*:\n)", workflow)
+if build is None or re.search(r"(?m)^    needs: patch-tests$", build.group("body")) is None:
+    raise SystemExit("FAIL: six-platform build must need the patch-tests release gate")
+PY
+pass "release workflow blocks native builds on patched upstream regressions"
+
 for forbidden in safe-ensure SAFE_ENSURE --if-missing --expect-name \
 	REGISTRY_CREATE_EVIDENCE REGISTRY_REWRITE_EVIDENCE WINDOWS_LOCK_EVIDENCE \
 	AreAccessRulesProtected; do
@@ -40,7 +78,7 @@ for forbidden in safe-ensure SAFE_ENSURE --if-missing --expect-name \
 		fail "release workflow must not depend on downstream APM contract: $forbidden"
 	fi
 done
-pass "release workflow uses standard APM 0.24 contracts"
+pass "release workflow uses standard upstream APM contracts"
 
 scripts/build-apm.sh --help | grep -qi "build-apm" \
 	|| fail "build-apm.sh --help should print usage"

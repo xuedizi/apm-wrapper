@@ -1,223 +1,156 @@
-diff --git a/src/apm_cli/commands/compile/cli.py b/src/apm_cli/commands/compile/cli.py
-index 4977e88..3acfe04 100644
---- a/src/apm_cli/commands/compile/cli.py
-+++ b/src/apm_cli/commands/compile/cli.py
-@@ -895,7 +895,7 @@ def _run_compilation(
-     "-t",
-     type=TargetParamType(),
-     default=None,
--    help="Target platform (comma-separated). Values: copilot, claude, cursor, opencode, codex, gemini, antigravity, windsurf, kiro, agent-skills, all. 'agent-skills' deploys to .agents/skills/ (cross-client). 'antigravity' (alias 'agy') deploys to .agents/ and is explicit-only -- not part of 'all'. 'all' = copilot+claude+cursor+opencode+codex+gemini+windsurf+kiro (excludes agent-skills and antigravity); combine with 'agent-skills' or 'antigravity' to add them.",
-+    help="Target platform (comma-separated). Values: copilot, claude, codebuddy, tc, cursor, opencode, codex, gemini, antigravity, windsurf, kiro, agent-skills, all. 'agent-skills' deploys to .agents/skills/ (cross-client). 'antigravity' (alias 'agy') deploys to .agents/ and is explicit-only -- not part of 'all'. TC deploys to .claude/ and is also explicit-only. 'all' = copilot+claude+codebuddy+cursor+opencode+codex+gemini+windsurf+kiro (excludes tc, agent-skills and antigravity); combine with 'agent-skills' or 'antigravity' to add them.",
- )
- @click.option(
-     "--dry-run",
-diff --git a/src/apm_cli/commands/deps/cli.py b/src/apm_cli/commands/deps/cli.py
-index 18cf0f2..0e43ef9 100644
---- a/src/apm_cli/commands/deps/cli.py
-+++ b/src/apm_cli/commands/deps/cli.py
-@@ -733,7 +733,7 @@ def clean(dry_run: bool, yes: bool):
-     "-t",
-     type=TargetParamType(),
-     default=None,
--    help="Target platform (comma-separated). Values: copilot, claude, cursor, opencode, codex, gemini, antigravity, windsurf, kiro, agent-skills, all. 'agent-skills' deploys to .agents/skills/ (cross-client). 'antigravity' (alias 'agy') deploys to .agents/ and is explicit-only -- not part of 'all'. 'all' = copilot+claude+cursor+opencode+codex+gemini+windsurf+kiro (excludes agent-skills and antigravity); combine with 'agent-skills' or 'antigravity' to add them. 'copilot-cowork' is also accepted when the copilot-cowork experimental flag is enabled (run 'apm experimental enable copilot-cowork').",
-+    help="Target platform (comma-separated). Values: copilot, claude, codebuddy, tc, cursor, opencode, codex, gemini, antigravity, windsurf, kiro, agent-skills, all. 'agent-skills' deploys to .agents/skills/ (cross-client). 'antigravity' (alias 'agy') deploys to .agents/ and is explicit-only -- not part of 'all'. TC deploys to .claude/ and is also explicit-only. 'all' = copilot+claude+codebuddy+cursor+opencode+codex+gemini+windsurf+kiro (excludes tc, agent-skills and antigravity); combine with 'agent-skills' or 'antigravity' to add them. 'copilot-cowork' is also accepted when the copilot-cowork experimental flag is enabled (run 'apm experimental enable copilot-cowork').",
- )
- @click.option(
-     "--parallel-downloads",
-diff --git a/src/apm_cli/commands/install.py b/src/apm_cli/commands/install.py
-index 09f3cc9..cc55b5d 100644
---- a/src/apm_cli/commands/install.py
-+++ b/src/apm_cli/commands/install.py
-@@ -942,7 +942,7 @@ def _handle_mcp_install(
-     "target",
-     type=TargetParamType(),
-     default=None,
--    help="Target harness(es) to deploy to. Comma-separated for multiple: --target claude,cursor. Repeating the flag (e.g. '-t a -t b') is NOT supported -- only the last value wins; use commas. Highest-priority entry in the resolution chain (--target > apm.yml targets: > apm config target > auto-detect). Values: copilot, claude, cursor, opencode, codex, gemini, antigravity, windsurf, kiro, agent-skills, all. 'agent-skills' deploys to .agents/skills/ (cross-client). 'antigravity' (alias 'agy') deploys to .agents/ (AGENTS.md + rules + skills + hooks.json + mcp_config.json) and is explicit-only -- not part of 'all' or auto-detection. 'all' = copilot+claude+cursor+opencode+codex+gemini+windsurf+kiro (excludes agent-skills and antigravity); combine with 'agent-skills' or 'antigravity' to add them. 'copilot-cowork' is also accepted when the copilot-cowork experimental flag is enabled (run 'apm experimental enable copilot-cowork'). 'copilot-app' is also accepted when the copilot-app experimental flag is enabled (run 'apm experimental enable copilot-app'). Note: '--target all' on 'apm compile' is deprecated; use 'apm compile --all' instead.",
-+    help="Target harness(es) to deploy to. Comma-separated for multiple: --target claude,cursor. Repeating the flag (e.g. '-t a -t b') is NOT supported -- only the last value wins; use commas. Highest-priority entry in the resolution chain (--target > apm.yml targets: > apm config target > auto-detect). Values: copilot, claude, codebuddy, tc, cursor, opencode, codex, gemini, antigravity, windsurf, kiro, agent-skills, all. 'agent-skills' deploys to .agents/skills/ (cross-client). 'antigravity' (alias 'agy') deploys to .agents/ (AGENTS.md + rules + skills + hooks.json + mcp_config.json) and is explicit-only -- not part of 'all' or auto-detection. TC deploys to .claude/ and is also explicit-only. 'all' = copilot+claude+codebuddy+cursor+opencode+codex+gemini+windsurf+kiro (excludes tc, agent-skills and antigravity); combine with 'agent-skills' or 'antigravity' to add them. 'copilot-cowork' is also accepted when the copilot-cowork experimental flag is enabled (run 'apm experimental enable copilot-cowork'). 'copilot-app' is also accepted when the copilot-app experimental flag is enabled (run 'apm experimental enable copilot-app'). Note: '--target all' on 'apm compile' is deprecated; use 'apm compile --all' instead.",
- )
- @click.option(
-     "--allow-insecure",
-diff --git a/src/apm_cli/compilation/agents_compiler.py b/src/apm_cli/compilation/agents_compiler.py
-index 52a6c1c..0b87f64 100644
---- a/src/apm_cli/compilation/agents_compiler.py
-+++ b/src/apm_cli/compilation/agents_compiler.py
-@@ -44,6 +44,8 @@ _VSCODE_TARGET_ALIASES = ("copilot", "agents")
- _KNOWN_TARGETS = (  # noqa: RUF005
-     "vscode",
-     "claude",
-+    "codebuddy",  # TNV downstream: Tencent CodeBuddy (claude family, .codebuddy/ deploy)
-+    "tc",  # TNV downstream: TC (claude family, .claude/ deploy)
-     "cursor",
-     "opencode",
-     "codex",
-diff --git a/src/apm_cli/core/apm_yml.py b/src/apm_cli/core/apm_yml.py
-index 91fcf8e..86cd9ab 100644
---- a/src/apm_cli/core/apm_yml.py
-+++ b/src/apm_cli/core/apm_yml.py
-@@ -25,6 +25,8 @@ from apm_cli.core.errors import (
- CANONICAL_TARGETS: frozenset[str] = frozenset(
-     {
-         "claude",
-+        "codebuddy",  # TNV downstream: Tencent CodeBuddy (Claude-compatible IDE)
-+        "tc",  # TNV downstream: TC (Claude-compatible IDE)
-         "copilot",
-         "cursor",
-         "opencode",
+diff --git a/src/apm_cli/core/target_catalog.py b/src/apm_cli/core/target_catalog.py
+index 28a4c43..2bb830e 100644
+--- a/src/apm_cli/core/target_catalog.py
++++ b/src/apm_cli/core/target_catalog.py
+@@ -119,6 +119,20 @@ TARGET_CAPABILITIES: Mapping[str, TargetCapability] = _build_target_catalog(
+             primitive_profile="claude",
+             compile_family="claude",
+         ),
++        _capability(
++            "codebuddy",
++            "Tencent CodeBuddy native .codebuddy configuration",
++            in_all=True,
++            primitive_profile="codebuddy",
++            compile_family="claude",
++        ),
++        _capability(
++            "tc",
++            "TC native Claude-compatible .claude configuration",
++            explicit_only=True,
++            primitive_profile="tc",
++            compile_family="claude",
++        ),
+         _capability(
+             "cursor",
+             "Cursor native .cursor configuration",
 diff --git a/src/apm_cli/core/target_detection.py b/src/apm_cli/core/target_detection.py
-index a9542d5..31691b0 100644
+index 0577be7..f548292 100644
 --- a/src/apm_cli/core/target_detection.py
 +++ b/src/apm_cli/core/target_detection.py
-@@ -53,6 +53,8 @@ def agents_alias_was_detected() -> bool:
+@@ -62,6 +62,8 @@ def agents_alias_was_detected() -> bool:
  TargetType = Literal[
      "vscode",
      "claude",
-+    "codebuddy",  # TNV downstream: Tencent CodeBuddy (Claude-compatible)
-+    "tc",  # TNV downstream: TC (Claude-compatible)
++    "codebuddy",
++    "tc",
      "cursor",
      "opencode",
      "codex",
-@@ -94,6 +96,8 @@ UserTargetType = Literal[
+@@ -103,6 +105,8 @@ UserTargetType = Literal[
      "vscode",
      "agents",
      "claude",
-+    "codebuddy",  # TNV downstream: Tencent CodeBuddy (Claude-compatible)
-+    "tc",  # TNV downstream: TC (Claude-compatible)
++    "codebuddy",
++    "tc",
      "cursor",
      "opencode",
      "codex",
-@@ -130,6 +134,10 @@ def detect_target(  # noqa: PLR0911
+@@ -142,6 +146,10 @@ def detect_target(  # noqa: PLR0911
              return "vscode", "explicit --target flag"
          elif explicit_target == "claude":
              return "claude", "explicit --target flag"
-+        elif explicit_target == "codebuddy":  # TNV downstream
++        elif explicit_target == "codebuddy":
 +            return "codebuddy", "explicit --target flag"
-+        elif explicit_target == "tc":  # TNV downstream
++        elif explicit_target == "tc":
 +            return "tc", "explicit --target flag"
          elif explicit_target == "cursor":
              return "cursor", "explicit --target flag"
          elif explicit_target == "opencode":
-@@ -155,6 +163,10 @@ def detect_target(  # noqa: PLR0911
+@@ -167,6 +175,10 @@ def detect_target(  # noqa: PLR0911
              return "vscode", "apm.yml target"
          elif config_target == "claude":
              return "claude", "apm.yml target"
-+        elif config_target == "codebuddy":  # TNV downstream
++        elif config_target == "codebuddy":
 +            return "codebuddy", "apm.yml target"
-+        elif config_target == "tc":  # TNV downstream
++        elif config_target == "tc":
 +            return "tc", "apm.yml target"
          elif config_target == "cursor":
              return "cursor", "apm.yml target"
          elif config_target == "opencode":
-@@ -264,7 +276,8 @@ def should_compile_claude_md(target: CompileTargetType) -> bool:
+@@ -277,7 +289,7 @@ def should_compile_claude_md(target: CompileTargetType) -> bool:
      """
      if isinstance(target, frozenset):
          return "claude" in target
 -    return target in ("claude", "all")
-+    # codebuddy and tc share the claude compile family (TNV downstream)
 +    return target in ("claude", "codebuddy", "tc", "all")
  
  
  def should_compile_gemini_md(target: CompileTargetType) -> bool:
-@@ -375,6 +388,8 @@ def get_target_description(target: UserTargetType) -> str:
+@@ -388,6 +400,8 @@ def get_target_description(target: UserTargetType) -> str:
      descriptions = {
          "vscode": "AGENTS.md + .github/copilot-instructions.md + .github/prompts/ + .github/agents/",
          "claude": "CLAUDE.md + .claude/commands/ + .claude/agents/ + .claude/skills/",
-+        "codebuddy": "CLAUDE.md + .codebuddy/commands/ + .codebuddy/agents/ + .codebuddy/skills/ (Claude-compatible)",
-+        "tc": "CLAUDE.md + .claude/commands/ + .claude/agents/ + .claude/skills/ (Claude-compatible)",
++        "codebuddy": "CLAUDE.md + .codebuddy/commands/ + .codebuddy/agents/ + .codebuddy/skills/",
++        "tc": "CLAUDE.md + .claude/commands/ + .claude/agents/ + .claude/skills/",
          "cursor": ".cursor/agents/ + .cursor/skills/ + .cursor/rules/",
          "opencode": "AGENTS.md + .opencode/agents/ + .opencode/commands/ + .opencode/skills/",
          "codex": "AGENTS.md + .agents/skills/ + .codex/agents/ + .codex/hooks.json",
-@@ -385,7 +400,7 @@ def get_target_description(target: UserTargetType) -> str:
-         "agent-skills": ".agents/skills/ only (cross-client shared skills -- no agents, hooks, or commands)",
-         "openclaw": ".agents/skills/ (project) or ~/.openclaw/skills/ (--global) -- experimental",
-         "hermes": "AGENTS.md + .agents/skills/ (project) or ~/.hermes/skills/ + config.yaml MCP (--global) -- experimental",
--        "all": "AGENTS.md + CLAUDE.md + GEMINI.md + .github/copilot-instructions.md + .github/ + .claude/ + .cursor/ + .opencode/ + .codex/ + .gemini/ + .windsurf/ + .kiro/ + .agents/",
-+        "all": "AGENTS.md + CLAUDE.md + GEMINI.md + .github/copilot-instructions.md + .github/ + .claude/ + .codebuddy/ + .cursor/ + .opencode/ + .codex/ + .gemini/ + .windsurf/ + .kiro/ + .agents/",
-         "minimal": "AGENTS.md only (create .github/, .claude/, or .gemini/ for full integration)",
-     }
-     return descriptions.get(normalized, "unknown target")
-@@ -398,7 +413,19 @@ def get_target_description(target: UserTargetType) -> str:
- #: The complete set of real (non-pseudo) canonical targets.
- #: "minimal" is intentionally excluded -- it is a fallback pseudo-target.
- ALL_CANONICAL_TARGETS = frozenset(
--    {"vscode", "claude", "cursor", "opencode", "codex", "gemini", "windsurf", "kiro"}
-+    # TNV downstream: CodeBuddy is a distinct target. TC shares Claude's
-+    # directory and is therefore explicit-only rather than part of "all".
-+    {
-+        "vscode",
-+        "claude",
-+        "codebuddy",
-+        "cursor",
-+        "opencode",
-+        "codex",
-+        "gemini",
-+        "windsurf",
-+        "kiro",
-+    }
- )
- 
- #: Targets that the parser must accept but that are gated at runtime by
-@@ -413,8 +440,9 @@ EXPERIMENTAL_TARGETS: frozenset[str] = frozenset(
- #: locations). Unlike EXPERIMENTAL_TARGETS, these are GA -- they just do
- #: not represent a single client tool.  Antigravity is explicit-only
- #: because its workspace config lives under the SHARED ``.agents/`` root,
--#: so there is no Antigravity-unique signal to auto-detect on.
--EXPLICIT_ONLY_TARGETS: frozenset[str] = frozenset({"agent-skills", "antigravity"})
-+#: so there is no Antigravity-unique signal to auto-detect on. TC likewise
-+#: shares ``.claude/`` with Claude and cannot be detected independently.
-+EXPLICIT_ONLY_TARGETS: frozenset[str] = frozenset({"agent-skills", "antigravity", "tc"})
- 
- #: Alias mapping: user-facing name -> canonical internal name.
- TARGET_ALIASES: dict[str, str] = {
-@@ -731,6 +759,7 @@ class ResolvedTargets:
+@@ -801,6 +815,7 @@ class ResolvedTargets:
  SIGNAL_WHITELIST: list[tuple[str, str, str]] = [
      ("claude", "dir", ".claude"),
      ("claude", "file", "CLAUDE.md"),
-+    ("codebuddy", "dir", ".codebuddy"),  # TNV downstream
++    ("codebuddy", "dir", ".codebuddy"),
      ("cursor", "dir", ".cursor"),
      ("cursor", "file", ".cursorrules"),  # legacy; .cursor/ is canonical
      ("copilot", "file", ".github/copilot-instructions.md"),
-@@ -749,6 +778,8 @@ SIGNAL_WHITELIST: list[tuple[str, str, str]] = [
+@@ -819,6 +834,8 @@ SIGNAL_WHITELIST: list[tuple[str, str, str]] = [
  # Ordered list of targets for display (excludes agent-skills meta-target).
  CANONICAL_TARGETS_ORDERED: list[str] = [
      "claude",
-+    "codebuddy",  # TNV downstream
-+    "tc",  # TNV downstream
++    "codebuddy",
++    "tc",
      "copilot",
      "cursor",
      "codex",
-@@ -761,6 +792,8 @@ CANONICAL_TARGETS_ORDERED: list[str] = [
+@@ -831,6 +848,8 @@ CANONICAL_TARGETS_ORDERED: list[str] = [
  # Canonical deploy directories for each target.
  CANONICAL_DEPLOY_DIRS: dict[str, str] = {
      "claude": ".claude/",
-+    "codebuddy": ".codebuddy/",  # TNV downstream
-+    "tc": ".claude/",  # TNV downstream
++    "codebuddy": ".codebuddy/",
++    "tc": ".claude/",
      "copilot": ".github/",
      "cursor": ".cursor/",
      "codex": ".codex/",
-@@ -774,6 +807,8 @@ CANONICAL_DEPLOY_DIRS: dict[str, str] = {
+@@ -844,6 +863,8 @@ CANONICAL_DEPLOY_DIRS: dict[str, str] = {
  # "needs <path>" display for inactive targets.
  CANONICAL_SIGNAL: dict[str, str] = {
      "claude": "CLAUDE.md",
-+    "codebuddy": ".codebuddy/",  # TNV downstream
-+    "tc": ".claude/",  # TNV downstream
++    "codebuddy": ".codebuddy/",
++    "tc": ".claude/",
      "copilot": ".github/copilot-instructions.md",
      "cursor": ".cursor/",
      "codex": ".codex/",
+diff --git a/src/apm_cli/integration/base_integrator.py b/src/apm_cli/integration/base_integrator.py
+index df301cf..27b21fa 100644
+--- a/src/apm_cli/integration/base_integrator.py
++++ b/src/apm_cli/integration/base_integrator.py
+@@ -509,11 +509,14 @@ class BaseIntegrator:
+         "prompts_copilot": "prompts",
+         "agents_copilot": "agents_github",
+         "commands_claude": "commands",
++        "commands_tc": "commands",
+         "commands_cursor": "commands_cursor",
+         "commands_opencode": "commands_opencode",
+         "instructions_copilot": "instructions",
+         "instructions_cursor": "rules_cursor",
+         "instructions_claude": "rules_claude",
++        "instructions_tc": "rules_claude",
++        "agents_tc": "agents_claude",
+     }
+ 
+     @staticmethod
 diff --git a/src/apm_cli/integration/targets.py b/src/apm_cli/integration/targets.py
-index 5889d14..e778869 100644
+index d881ef2..711be05 100644
 --- a/src/apm_cli/integration/targets.py
 +++ b/src/apm_cli/integration/targets.py
-@@ -519,6 +519,57 @@ KNOWN_TARGETS: dict[str, TargetProfile] = {
-         compile_family="claude",
+@@ -547,6 +547,50 @@ KNOWN_TARGETS: dict[str, TargetProfile] = {
+         user_supported=True,
          hooks_config_display=".claude/settings.json",
      ),
-+    # CodeBuddy (Tencent) -- Claude-Code-compatible AI coding IDE. Reads
-+    # CLAUDE.md at project root and uses .claude/-style settings.json for
-+    # hooks. Reuses claude_* primitive formatters but deploys to .codebuddy/
-+    # so multi-IDE projects (.claude/ + .codebuddy/) don't collide.
-+    # Ref: https://copilot.tencent.com/codebuddy
++    # CodeBuddy reuses Claude-compatible primitive formats while keeping its
++    # own deployment root so it can coexist with Claude in one project.
 +    "codebuddy": TargetProfile(
-+        name="codebuddy",
++        capability=TARGET_CAPABILITIES["codebuddy"],
 +        root_dir=".codebuddy",
 +        primitives={
 +            "instructions": PrimitiveMapping(
@@ -234,15 +167,12 @@ index 5889d14..e778869 100644
 +        auto_create=False,
 +        detect_by_dir=True,
 +        user_supported=True,
-+        compile_family="claude",
 +        hooks_config_display=".codebuddy/settings.json",
 +    ),
-+    # TC -- Claude-Code-compatible internal IDE target. It intentionally
-+    # deploys to the canonical Claude project directory so TC and Claude share
-+    # the same on-disk primitives. The shared root makes TC explicit-only:
-+    # .claude/ auto-detection resolves to Claude, never to both targets.
++    # TC deliberately shares Claude's on-disk layout and is therefore
++    # explicit-only in the target catalog.
 +    "tc": TargetProfile(
-+        name="tc",
++        capability=TARGET_CAPABILITIES["tc"],
 +        root_dir=".claude",
 +        primitives={
 +            "instructions": PrimitiveMapping(
@@ -259,7 +189,6 @@ index 5889d14..e778869 100644
 +        auto_create=False,
 +        detect_by_dir=False,
 +        user_supported=True,
-+        compile_family="claude",
 +        hooks_config_display=".claude/settings.json",
 +    ),
      # Cursor -- at user scope, ~/.cursor/ supports skills, agents, hooks,
@@ -278,8 +207,87 @@ index 7fe1442..42a712c 100644
              "cursor",
              "opencode",
              "codex",
+diff --git a/tests/unit/core/test_target_catalog.py b/tests/unit/core/test_target_catalog.py
+index 821759c..490bfff 100644
+--- a/tests/unit/core/test_target_catalog.py
++++ b/tests/unit/core/test_target_catalog.py
+@@ -37,13 +37,25 @@ COMMANDS = ("compile", "install", "update")
+ def test_current_target_sets_and_aliases_are_characterized() -> None:
+     """Lock the accepted target contract before moving its owner."""
+     assert (
+-        frozenset({"claude", "codex", "cursor", "gemini", "kiro", "opencode", "vscode", "windsurf"})
++        frozenset(
++            {
++                "claude",
++                "codebuddy",
++                "codex",
++                "cursor",
++                "gemini",
++                "kiro",
++                "opencode",
++                "vscode",
++                "windsurf",
++            }
++        )
+         == ALL_CANONICAL_TARGETS
+     )
+     assert (
+         frozenset({"copilot-app", "copilot-cowork", "hermes", "openclaw"}) == EXPERIMENTAL_TARGETS
+     )
+-    assert frozenset({"agent-skills", "antigravity"}) == EXPLICIT_ONLY_TARGETS
++    assert frozenset({"agent-skills", "antigravity", "tc"}) == EXPLICIT_ONLY_TARGETS
+     assert frozenset({"intellij"}) == MCP_ONLY_TARGETS
+     assert TARGET_ALIASES == {
+         "agy": "antigravity",
+@@ -60,6 +72,7 @@ def test_current_target_sets_and_aliases_are_characterized() -> None:
+                 "all",
+                 "antigravity",
+                 "claude",
++                "codebuddy",
+                 "codex",
+                 "copilot",
+                 "copilot-app",
+@@ -71,6 +84,7 @@ def test_current_target_sets_and_aliases_are_characterized() -> None:
+                 "kiro",
+                 "openclaw",
+                 "opencode",
++                "tc",
+                 "vscode",
+                 "windsurf",
+             }
+@@ -131,6 +145,30 @@ def test_current_native_profiles_are_characterized() -> None:
+             "claude",
+             None,
+         ),
++        "codebuddy": (
++            ".codebuddy",
++            {
++                "instructions": ("rules", ".md", "claude_rules", None, True),
++                "agents": ("agents", ".md", "claude_agent", None, False),
++                "commands": ("commands", ".md", "claude_command", None, False),
++                "skills": ("skills", "/SKILL.md", "skill_standard", None, False),
++                "hooks": ("hooks", ".json", "claude_hooks", None, False),
++            },
++            "claude",
++            None,
++        ),
++        "tc": (
++            ".claude",
++            {
++                "instructions": ("rules", ".md", "claude_rules", None, True),
++                "agents": ("agents", ".md", "claude_agent", None, False),
++                "commands": ("commands", ".md", "claude_command", None, False),
++                "skills": ("skills", "/SKILL.md", "skill_standard", None, False),
++                "hooks": ("hooks", ".json", "claude_hooks", None, False),
++            },
++            "claude",
++            None,
++        ),
+         "cursor": (
+             ".cursor",
+             {
 diff --git a/tests/unit/core/test_target_resolution_v2.py b/tests/unit/core/test_target_resolution_v2.py
-index 8eec99c..0cadeae 100644
+index 5c5cb28..0ba0172 100644
 --- a/tests/unit/core/test_target_resolution_v2.py
 +++ b/tests/unit/core/test_target_resolution_v2.py
 @@ -194,6 +194,18 @@ def test_resolution_autodetect_single_signal(tmp_path):
@@ -331,6 +339,64 @@ index a4d5451..bfa3a4b 100644
  def test_config_default_target_provenance_names_config_source(tmp_path: Path, capsys: Any) -> None:
      """A config-default install reports 'apm config target' as its provenance.
  
+diff --git a/tests/unit/integration/test_data_driven_dispatch.py b/tests/unit/integration/test_data_driven_dispatch.py
+index 335cf43..494946f 100644
+--- a/tests/unit/integration/test_data_driven_dispatch.py
++++ b/tests/unit/integration/test_data_driven_dispatch.py
+@@ -308,17 +308,20 @@ class TestExhaustivenessChecks:
+             "prompts",  # was prompts_copilot, aliased
+             "agents_github",  # was agents_copilot, aliased
+             "agents_claude",
++            "agents_codebuddy",
+             "agents_cursor",
+             "agents_opencode",
+             "agents_codex",
+             # NOTE: windsurf no longer exposes an 'agents' primitive
+             # (its content deploys as skills under .agents/skills/).
+             "commands",  # was commands_claude, aliased
++            "commands_codebuddy",
+             "commands_cursor",
+             "commands_gemini",
+             "commands_opencode",
+             "commands_windsurf",
+             "instructions",  # was instructions_copilot, aliased
++            "instructions_codebuddy",
+             "instructions_windsurf",
+             "instructions_antigravity",
+             "instructions_kiro",
+@@ -527,6 +530,11 @@ class TestPartitionBucketKey:
+     def test_claude_instructions_alias(self):
+         assert BaseIntegrator.partition_bucket_key("instructions", "claude") == "rules_claude"
+ 
++    def test_tc_shared_root_uses_claude_aliases(self):
++        assert BaseIntegrator.partition_bucket_key("agents", "tc") == "agents_claude"
++        assert BaseIntegrator.partition_bucket_key("commands", "tc") == "commands"
++        assert BaseIntegrator.partition_bucket_key("instructions", "tc") == "rules_claude"
++
+     def test_unaliased_key_passthrough(self):
+         assert BaseIntegrator.partition_bucket_key("agents", "cursor") == "agents_cursor"
+ 
+@@ -568,6 +576,20 @@ class TestClaudeRulesPartitionRouting:
+         assert ".claude/rules/testing.md" in buckets["rules_claude"]
+         assert ".claude/agents/reviewer.md" in buckets["agents_claude"]
+ 
++    def test_explicit_tc_routes_shared_claude_paths_to_legacy_buckets(self):
++        managed = {
++            ".claude/rules/python.md",
++            ".claude/agents/reviewer.md",
++            ".claude/commands/review.md",
++        }
++        buckets = BaseIntegrator.partition_managed_files(
++            managed,
++            targets=[KNOWN_TARGETS["tc"]],
++        )
++        assert buckets["rules_claude"] == {".claude/rules/python.md"}
++        assert buckets["agents_claude"] == {".claude/agents/reviewer.md"}
++        assert buckets["commands"] == {".claude/commands/review.md"}
++
+ 
+ # ===================================================================
+ # 7. TestIntegrationPrefixSecurity
 diff --git a/tests/unit/integration/test_targets.py b/tests/unit/integration/test_targets.py
 index 8fa37bc..7017d87 100644
 --- a/tests/unit/integration/test_targets.py
