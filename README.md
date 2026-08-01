@@ -14,7 +14,7 @@ For example, `v0.26.0-tac.v0.3.0` is built from
 
 ## Downstream scope
 
-The wrapper intentionally carries three downstream patches:
+The wrapper intentionally carries two active downstream patches:
 
 - `ide.patch` adds the `codebuddy` and `tc` targets that upstream APM 0.26
   does not provide. CodeBuddy deploys Claude-compatible assets under
@@ -24,12 +24,9 @@ The wrapper intentionally carries three downstream patches:
   before its manifest is traversed, so one `--refresh` command converges the
   transitive graph. It separately tracks declared ref drift and semver tag
   drift, preserving content-hash rejection when an unchanged tag moves.
-- `marketplace-provenance.patch` preserves Marketplace origin metadata across
-  lockfile rebuilds only when the resolved commit remains the same.
-
-Marketplace registration, package installation, audit, policy discovery, and
-frozen repair otherwise use standard APM 0.26 behavior. TCLI owns orchestration
-and invokes:
+Marketplace registration, package installation, audit, policy discovery,
+frozen repair, and lockfile provenance replay use standard APM 0.26 behavior.
+TCLI owns orchestration and invokes:
 
 ```bash
 apm marketplace add SOURCE --name NAME
@@ -47,7 +44,7 @@ standard APM replace-by-name semantics. TCLI does not require downstream
 patches/APM_VERSION       upstream microsoft/apm tag
 patches/ide.patch         codebuddy / tc target support
 patches/literal-ref-refresh.patch
-patches/marketplace-provenance.patch
+disabled-patches/marketplace-provenance.patch  inactive source archive
 scripts/build-apm.sh      clone, patch, and PyInstaller-build apm / apm.exe
 scripts/test-patched-apm.sh
 scripts/package-release.sh
@@ -99,11 +96,12 @@ verifies the exact six-archive set, stages only those archives, generates and
 verifies the checksum/size manifest, and only then creates the GitHub Release.
 Before the six native builds start, the `patch-tests` job applies all patches
 to a clean pinned checkout and runs the IDE catalog/partitioning, literal-ref,
-hash-integrity, Marketplace provenance, and hermetic graph-convergence
-regressions.
+hash-integrity, and hermetic graph-convergence regressions.
 
-Remove either behavior patch only after a released upstream tag contains
-equivalent behavior and regression coverage. Rollback must restore the complete
-previously verified wrapper commit/tag, including its matching `APM_VERSION`,
-IDE patch, tests, and documentation; changing only the version pin can leave an
-incompatible patch set.
+Remove the active literal-ref behavior patch only after a released upstream tag
+contains equivalent behavior and regression coverage. Rollback must restore the
+complete previously verified wrapper commit/tag, including its matching
+`APM_VERSION`, IDE patch, tests, and documentation; changing only the version
+pin can leave an incompatible patch set. Inactive patches remain source
+archives and require a reviewed change, full verification, and a new wrapper
+release before they can affect a sidecar binary.
