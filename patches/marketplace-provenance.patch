@@ -1,0 +1,169 @@
+diff --git a/src/apm_cli/install/phases/lockfile.py b/src/apm_cli/install/phases/lockfile.py
+index 6ce986a..3494bca 100644
+--- a/src/apm_cli/install/phases/lockfile.py
++++ b/src/apm_cli/install/phases/lockfile.py
+@@ -158,6 +158,7 @@ class LockfileBuilder:
+             self._preserve_existing_lsp_state(lockfile)
+             self._preserve_existing_local_state(lockfile)
+             self._preserve_existing_revision_pin_tags(lockfile)
++            self._preserve_existing_marketplace_provenance(lockfile)
+ 
+             # Only write when the semantic content has actually changed
+             # (avoids generated_at churn in version control).
+@@ -484,6 +485,28 @@ class LockfileBuilder:
+             ):
+                 dep.resolved_tag = prev.resolved_tag
+ 
++    def _preserve_existing_marketplace_provenance(self, lockfile: LockFile) -> None:
++        """Carry origin metadata when frozen/normal replay keeps the same bytes."""
++        existing = self.ctx.existing_lockfile
++        if not existing:
++            return
++        for key, dep in lockfile.dependencies.items():
++            prev = existing.get_dependency(key)
++            if (
++                prev is None
++                or not dep.resolved_commit
++                or dep.resolved_commit != prev.resolved_commit
++            ):
++                continue
++            if not dep.discovered_via:
++                dep.discovered_via = prev.discovered_via
++            if not dep.marketplace_plugin_name:
++                dep.marketplace_plugin_name = prev.marketplace_plugin_name
++            if not dep.source_url:
++                dep.source_url = prev.source_url
++            if not dep.source_digest:
++                dep.source_digest = prev.source_digest
++
+     def _write_if_changed(self, lockfile: LockFile, lockfile_path: Path, _LF: type) -> None:
+         # Re-read the on-disk lockfile for the semantic comparison.
+         # This is intentionally a FRESH read (not ctx.existing_lockfile)
+diff --git a/tests/unit/install/phases/test_lockfile_marketplace_provenance.py b/tests/unit/install/phases/test_lockfile_marketplace_provenance.py
+new file mode 100644
+index 0000000..1022d5c
+--- /dev/null
++++ b/tests/unit/install/phases/test_lockfile_marketplace_provenance.py
+@@ -0,0 +1,122 @@
++"""Regressions for Marketplace provenance during lockfile rebuilds."""
++
++from types import SimpleNamespace
++from unittest.mock import MagicMock
++
++import pytest
++
++from apm_cli.deps.installed_package import InstalledPackage
++from apm_cli.deps.lockfile import LockedDependency, LockFile
++from apm_cli.install.context import InstallContext
++from apm_cli.install.phases.lockfile import LockfileBuilder
++from apm_cli.models.apm_package import DependencyReference
++
++
++def _lockfile_with(dependency: LockedDependency) -> LockFile:
++    lockfile = LockFile()
++    lockfile.add_dependency(dependency)
++    return lockfile
++
++
++def test_marketplace_provenance_is_preserved_for_same_nonempty_commit() -> None:
++    commit = "a" * 40
++    previous = LockedDependency(
++        repo_url="acme/parent",
++        resolved_commit=commit,
++        discovered_via="fixture-marketplace",
++        marketplace_plugin_name="fixture-parent",
++        source_url="https://example.invalid/marketplace.yml",
++        source_digest="sha256:fixture",
++    )
++    current = LockedDependency(
++        repo_url="acme/parent",
++        resolved_commit=commit,
++    )
++    rebuilt = _lockfile_with(current)
++
++    LockfileBuilder(
++        SimpleNamespace(existing_lockfile=_lockfile_with(previous))
++    )._preserve_existing_marketplace_provenance(rebuilt)
++
++    assert current.discovered_via == "fixture-marketplace"
++    assert current.marketplace_plugin_name == "fixture-parent"
++    assert current.source_url == "https://example.invalid/marketplace.yml"
++    assert current.source_digest == "sha256:fixture"
++
++
++def test_build_and_save_preserves_marketplace_provenance_on_disk(tmp_path) -> None:
++    commit = "a" * 40
++    previous = LockedDependency(
++        repo_url="acme/parent",
++        resolved_commit=commit,
++        discovered_via="fixture-marketplace",
++        marketplace_plugin_name="fixture-parent",
++        source_url="https://example.invalid/marketplace.yml",
++        source_digest="sha256:fixture",
++    )
++    existing = _lockfile_with(previous)
++    existing.write(tmp_path / "apm.lock.yaml")
++
++    dep_ref = DependencyReference(repo_url="acme/parent", reference="v2.0.0")
++    ctx = InstallContext(
++        project_root=tmp_path,
++        apm_dir=tmp_path,
++        existing_lockfile=existing,
++        logger=MagicMock(),
++        diagnostics=MagicMock(),
++        lockfile_only=True,
++    )
++    ctx.installed_packages = [
++        InstalledPackage(
++            dep_ref=dep_ref,
++            resolved_commit=commit,
++            depth=1,
++            resolved_by=None,
++        )
++    ]
++
++    LockfileBuilder(ctx).build_and_save()
++
++    written = LockFile.read(tmp_path / "apm.lock.yaml")
++    assert written is not None
++    current = written.get_dependency(dep_ref.get_unique_key())
++    assert current is not None
++    assert current.discovered_via == "fixture-marketplace"
++    assert current.marketplace_plugin_name == "fixture-parent"
++    assert current.source_url == "https://example.invalid/marketplace.yml"
++    assert current.source_digest == "sha256:fixture"
++
++
++@pytest.mark.parametrize(
++    ("previous_commit", "current_commit"),
++    [
++        (None, None),
++        ("a" * 40, "b" * 40),
++    ],
++)
++def test_marketplace_provenance_is_not_inherited_without_same_nonempty_commit(
++    previous_commit: str | None,
++    current_commit: str | None,
++) -> None:
++    previous = LockedDependency(
++        repo_url="acme/parent",
++        resolved_commit=previous_commit,
++        discovered_via="fixture-marketplace",
++        marketplace_plugin_name="fixture-parent",
++        source_url="https://example.invalid/marketplace.yml",
++        source_digest="sha256:fixture",
++    )
++    current = LockedDependency(
++        repo_url="acme/parent",
++        resolved_commit=current_commit,
++    )
++    rebuilt = _lockfile_with(current)
++
++    LockfileBuilder(
++        SimpleNamespace(existing_lockfile=_lockfile_with(previous))
++    )._preserve_existing_marketplace_provenance(rebuilt)
++
++    assert current.discovered_via is None
++    assert current.marketplace_plugin_name is None
++    assert current.source_url is None
++    assert current.source_digest is None

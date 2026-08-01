@@ -15,12 +15,15 @@ Out-of-tree patches against upstream `microsoft/apm`, applied by
   declared ref changes or legitimate semver tag changes as expected content
   hash changes. Its hermetic tests cover one-command parent/child convergence,
   no redundant download, and rejection of an unchanged moved tag.
+- `marketplace-provenance.patch` preserves Marketplace origin metadata when a
+  lockfile rebuild resolves the dependency to the same non-empty commit. Its
+  focused regression rejects inheritance for missing or changed commits.
 
-No Marketplace, policy, registry, safe-install, or attestation behavior is
-patched downstream. Those capabilities remain owned by standard APM 0.26,
-while TCLI coordinates initialization with standard APM commands.
+No policy, registry, safe-install, or attestation behavior is patched
+downstream. Those capabilities remain owned by standard APM 0.26, while TCLI
+coordinates initialization with standard APM commands.
 
-Delete the refresh patch only after an upstream release carries the same source
+Delete either behavior patch only after an upstream release carries its source
 fix and regressions. To roll back, restore the complete prior wrapper baseline
 commit/tag, including its v0.24-compatible IDE patch and tests; do not change
 only `APM_VERSION`.

@@ -19,12 +19,14 @@ pass "build-apm.sh is executable"
 [ -f patches/ide.patch ] || fail "patches/ide.patch must carry TAC IDE target support"
 [ -f patches/literal-ref-refresh.patch ] \
 	|| fail "patches/literal-ref-refresh.patch must carry single-command literal ref refresh"
+[ -f patches/marketplace-provenance.patch ] \
+	|| fail "patches/marketplace-provenance.patch must preserve Marketplace lock provenance"
 [ "$(cat patches/APM_VERSION)" = "v0.26.0" ] \
 	|| fail "patches/APM_VERSION must pin upstream v0.26.0"
 [ ! -f patches/codebuddy.patch ] || fail "patches/codebuddy.patch should be renamed to patches/ide.patch"
 patch_names=$(find patches -maxdepth 1 -type f -name '*.patch' -exec basename {} \; | sort)
-[ "$patch_names" = "$(printf '%s\n' ide.patch literal-ref-refresh.patch)" ] \
-	|| fail "expected exactly ide.patch and literal-ref-refresh.patch, got: $patch_names"
+[ "$patch_names" = "$(printf '%s\n' ide.patch literal-ref-refresh.patch marketplace-provenance.patch)" ] \
+	|| fail "expected exactly ide.patch, literal-ref-refresh.patch, and marketplace-provenance.patch, got: $patch_names"
 pass "patch inputs exist"
 
 grep -q '"codebuddy"' patches/ide.patch \
@@ -57,6 +59,13 @@ grep -q 'tests/integration/test_literal_ref_refresh_convergence.py' \
 	patches/literal-ref-refresh.patch \
 	|| fail "literal ref refresh patch should carry its hermetic convergence regression"
 pass "literal ref refresh patch carries source and regression coverage"
+
+grep -q 'src/apm_cli/install/phases/lockfile.py' patches/marketplace-provenance.patch \
+	|| fail "Marketplace provenance patch should own lockfile preservation"
+grep -q 'tests/unit/install/phases/test_lockfile_marketplace_provenance.py' \
+	patches/marketplace-provenance.patch \
+	|| fail "Marketplace provenance patch should carry focused regression coverage"
+pass "Marketplace provenance behavior is isolated in its own patch"
 
 workflow=.github/workflows/release.yml
 grep -q '^  patch-tests:$' "$workflow" \

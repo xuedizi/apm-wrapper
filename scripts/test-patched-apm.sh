@@ -41,5 +41,6 @@ done
 		tests/unit/integration/test_targets.py \
 		tests/unit/test_install_update_refs.py \
 		tests/unit/install/phases/test_resolve_phase_spec_drift.py \
+		tests/unit/install/phases/test_lockfile_marketplace_provenance.py \
 		tests/integration/test_literal_ref_refresh_convergence.py
 )
