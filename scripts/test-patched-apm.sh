@@ -16,6 +16,41 @@ APM_VERSION=$(cat "$PATCH_DIR/APM_VERSION")
 	exit 1
 }
 
+shopt -s nullglob
+patch_candidates=("$PATCH_DIR"/*.patch)
+active_patch_names=()
+for patch_file in "${patch_candidates[@]}"; do
+	[ -f "$patch_file" ] && [ ! -L "$patch_file" ] || {
+		echo "test-patched-apm.sh: active patch must be a real regular file: $patch_file" >&2
+		exit 1
+	}
+	active_patch_names+=("$(basename "$patch_file")")
+done
+if [ "${#active_patch_names[@]}" -gt 0 ]; then
+	sorted_patch_names=()
+	while IFS= read -r patch_name; do
+		sorted_patch_names+=("$patch_name")
+	done < <(printf '%s\n' "${active_patch_names[@]}" | LC_ALL=C sort)
+	active_patch_names=("${sorted_patch_names[@]}")
+fi
+
+expected_patch_names=(
+	"gitlab-policy-discovery.patch"
+	"ide.patch"
+	"literal-ref-refresh.patch"
+)
+actual_patch_names=$(printf '%s\n' "${active_patch_names[@]}")
+expected_patch_names_text=$(printf '%s\n' "${expected_patch_names[@]}")
+[ "$actual_patch_names" = "$expected_patch_names_text" ] || {
+	echo "test-patched-apm.sh: expected exactly active gitlab-policy-discovery.patch, ide.patch, and literal-ref-refresh.patch; got: $actual_patch_names" >&2
+	exit 1
+}
+
+active_patch_files=()
+for patch_name in "${active_patch_names[@]}"; do
+	active_patch_files+=("$PATCH_DIR/$patch_name")
+done
+
 WORK=$(mktemp -d -t apm-patch-tests.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 APM_GIT_URL="${TAC_APM_GIT_URL:-https://github.com/microsoft/apm.git}"
@@ -23,12 +58,7 @@ APM_GIT_URL="${TAC_APM_GIT_URL:-https://github.com/microsoft/apm.git}"
 git -c http.version=HTTP/1.1 clone --depth 1 --branch "$APM_VERSION" \
 	--single-branch "$APM_GIT_URL" "$WORK/src" >/dev/null
 
-shopt -s nullglob
-for patch_file in "$PATCH_DIR"/*.patch; do
-	[ -f "$patch_file" ] && [ ! -L "$patch_file" ] || {
-		echo "test-patched-apm.sh: active patch must be a real regular file: $patch_file" >&2
-		exit 1
-	}
+for patch_file in "${active_patch_files[@]}"; do
 	echo ">> applying $(basename "$patch_file")"
 	(cd "$WORK/src" && git apply "$patch_file")
 done

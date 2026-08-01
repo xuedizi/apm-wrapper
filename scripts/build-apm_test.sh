@@ -42,6 +42,74 @@ patch_names=$(
 	|| fail "expected exactly active gitlab-policy-discovery.patch, ide.patch, and literal-ref-refresh.patch, got: $patch_names"
 pass "active and archived patch inputs are separated"
 
+python3 - scripts/test-patched-apm.sh <<'PY'
+from pathlib import Path
+import re
+import sys
+
+gate = Path(sys.argv[1]).read_text(encoding="utf-8")
+expected_match = re.search(
+    r"(?ms)^expected_patch_names=\(\n(?P<body>.*?)^\)$", gate
+)
+if expected_match is None:
+    raise SystemExit(
+        "FAIL: release gate must declare the exact expected_patch_names array"
+    )
+expected_names = re.findall(r'^\s*"([^\"]+)"\s*$', expected_match.group("body"), re.M)
+expected = [
+    "gitlab-policy-discovery.patch",
+    "ide.patch",
+    "literal-ref-refresh.patch",
+]
+if expected_names != expected:
+    raise SystemExit(
+        "FAIL: release gate active patch names mismatch: "
+        f"expected={expected!r}, got={expected_names!r}"
+    )
+
+required_before_clone = [
+    'patch_candidates=("$PATCH_DIR"/*.patch)',
+    '[ -f "$patch_file" ] && [ ! -L "$patch_file" ]',
+    "LC_ALL=C sort",
+    'actual_patch_names=$(printf \'%s\\n\' "${active_patch_names[@]}")',
+    'expected_patch_names_text=$(printf \'%s\\n\' "${expected_patch_names[@]}")',
+]
+clone_position = gate.find("git -c http.version=HTTP/1.1 clone")
+if clone_position < 0:
+    raise SystemExit("FAIL: release gate clone command is missing")
+for fragment in required_before_clone:
+    position = gate.find(fragment)
+    if position < 0 or position > clone_position:
+        raise SystemExit(
+            "FAIL: release gate must validate the exact active patch set before clone: "
+            f"{fragment}"
+        )
+
+if 'for patch_file in "${active_patch_files[@]}"; do' not in gate:
+    raise SystemExit(
+        "FAIL: release gate must apply the already validated active_patch_files array"
+    )
+if 'for patch_file in "$PATCH_DIR"/*.patch; do' in gate:
+    raise SystemExit("FAIL: release gate must not apply an unchecked patch glob")
+PY
+pass "patched-upstream release gate enforces the exact active patch set before clone"
+
+gate_fixture=$(mktemp -d -t apm-patch-gate-test.XXXXXX)
+trap 'rm -rf "$gate_fixture"' EXIT
+mkdir -p "$gate_fixture/scripts" "$gate_fixture/patches"
+cp scripts/test-patched-apm.sh "$gate_fixture/scripts/"
+cp patches/APM_VERSION "$gate_fixture/patches/"
+for patch_name in gitlab-policy-discovery.patch ide.patch literal-ref-refresh.patch unexpected.patch; do
+	: >"$gate_fixture/patches/$patch_name"
+done
+if gate_output=$(bash "$gate_fixture/scripts/test-patched-apm.sh" 2>&1); then
+	fail "patched-upstream release gate must reject an extra active patch before clone"
+fi
+grep -q 'test-patched-apm.sh: expected exactly active gitlab-policy-discovery.patch, ide.patch, and literal-ref-refresh.patch' \
+	<<<"$gate_output" \
+	|| fail "extra active patch rejection should report the exact expected set, got: $gate_output"
+pass "patched-upstream release gate rejects an extra active patch without network"
+
 python3 - patches/gitlab-policy-discovery.patch <<'PY'
 from pathlib import Path
 import re
