@@ -15,8 +15,11 @@ Only organization-policy auto-discovery is affected.
 ## Chosen Design
 
 Add one independent `gitlab-policy-discovery.patch`, rebased onto upstream APM
-`v0.26.0`. Do not modify `ide.patch`, `literal-ref-refresh.patch`, or
-`marketplace-provenance.patch`.
+`v0.26.0`. Keep `ide.patch` and `literal-ref-refresh.patch` byte-identical to
+current `main`. Current `main` archives the former active Marketplace
+provenance patch byte-identically as
+`disabled-patches/marketplace-provenance.patch`; keep that archive present and
+inactive rather than reactivating it.
 
 The patch has two responsibilities:
 
@@ -58,11 +61,12 @@ upstream tree, not a wrapper-only imitation. Focused regressions cover:
   the existing discovery helpers.
 
 `scripts/test-patched-apm.sh` adds only the relevant upstream policy and host
-test files. `scripts/build-apm_test.sh` changes its exact patch list from three
-to four and verifies that the GitLab patch owns only policy discovery, hostname
-recognition, and its focused tests. Documentation describes the narrow scope
-and removes the inaccurate claim that standard APM 0.26 owns all policy
-behavior.
+test files. `scripts/build-apm_test.sh` changes current `main`'s exact active
+patch list from two to three and verifies that the GitLab patch owns only
+policy discovery, hostname recognition, and its focused tests. The archived
+Marketplace patch and its regression remain outside active build and test
+selection. Documentation describes the narrow scope and removes the inaccurate
+claim that standard APM 0.26 owns all policy behavior.
 
 The red/green proof is required: first add the focused regression to the
 temporary upstream test tree without the source fix and observe the expected
@@ -86,6 +90,12 @@ pass its full Go and release-contract tests, Direct and Marketplace lifecycle
 checks, six-platform sidecar preflight, clean detached-source proof, local
 release verification, and full remote verification.
 
+The real Marketplace Frozen lifecycle is still a required recorded gate. The
+already-known loss of Marketplace provenance from standard upstream APM 0.26
+is an explicitly accepted risk for this rollout and is not a GitLab-patch
+release blocker. Only that known missing-provenance mismatch may be accepted;
+registry mutation or any other lifecycle failure remains blocking.
+
 ## Non-goals
 
 - No generic refactor of upstream policy discovery.
@@ -93,4 +103,5 @@ release verification, and full remote verification.
   behavior.
 - No new configuration surface.
 - No overwrite or deletion of an existing tag or Release.
-- No change to the other three downstream patches.
+- No change to the other two active downstream patches or to the bytes and
+  inactive status of the archived Marketplace provenance patch.

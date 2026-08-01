@@ -14,7 +14,7 @@ For example, `v0.26.0-tac.v0.3.0` is built from
 
 ## Downstream scope
 
-The wrapper intentionally carries four downstream patches:
+The wrapper intentionally carries three active downstream patches:
 
 - `gitlab-policy-discovery.patch` recognizes the company self-managed GitLab
   host without per-shell configuration and routes organization-policy
@@ -29,8 +29,6 @@ The wrapper intentionally carries four downstream patches:
   before its manifest is traversed, so one `--refresh` command converges the
   transitive graph. It separately tracks declared ref drift and semver tag
   drift, preserving content-hash rejection when an unchanged tag moves.
-- `marketplace-provenance.patch` preserves Marketplace origin metadata across
-  lockfile rebuilds only when the resolved commit remains the same.
 
 General GitLab repository install, download, and Marketplace support remains
 upstream APM 0.26 behavior. Only self-managed GitLab organization-policy
@@ -48,6 +46,11 @@ authoritative. Re-running init reconciles the configured alias through
 standard APM replace-by-name semantics. TCLI does not require downstream
 `--if-missing`, safe-inspection, registry, or lockfile extensions.
 
+`disabled-patches/marketplace-provenance.patch` is a byte-preserved source
+archive and is not applied, tested, or embedded in release binaries. Its
+inactive status follows the current upstream-risk decision documented in
+`disabled-patches/README.md`.
+
 ## Layout
 
 ```text
@@ -55,7 +58,7 @@ patches/APM_VERSION       upstream microsoft/apm tag
 patches/gitlab-policy-discovery.patch
 patches/ide.patch         codebuddy / tc target support
 patches/literal-ref-refresh.patch
-patches/marketplace-provenance.patch
+disabled-patches/marketplace-provenance.patch  inactive source archive
 scripts/build-apm.sh      clone, patch, and PyInstaller-build apm / apm.exe
 scripts/test-patched-apm.sh
 scripts/package-release.sh
@@ -105,14 +108,18 @@ upload: the runner and Python architecture, the executable's native
 ELF/Mach-O/PE header, and a native `apm --version` smoke test. The release job
 verifies the exact six-archive set, stages only those archives, generates and
 verifies the checksum/size manifest, and only then creates the GitHub Release.
-Before the six native builds start, the `patch-tests` job applies all patches
-to a clean pinned checkout and runs the GitLab policy/host, IDE
-catalog/partitioning, literal-ref, hash-integrity, Marketplace provenance, and
-hermetic graph-convergence regressions.
+Before the six native builds start, the `patch-tests` job applies all active
+patches to a clean pinned checkout and runs the GitLab policy/host, IDE
+catalog/partitioning, literal-ref, hash-integrity, and hermetic
+graph-convergence regressions. The archived Marketplace provenance regression
+is not selected by this active-patch gate.
 
 Remove the GitLab policy patch only after a released upstream tag contains both
-the source behavior and equivalent regressions. Remove any other behavior patch
-only after upstream contains its equivalent source and regression coverage.
-Rollback must restore the complete previously verified wrapper commit/tag,
-including its matching `APM_VERSION`, patches, tests, and documentation;
-changing only the version pin can leave an incompatible patch set.
+the source behavior and equivalent regressions. Remove any other active
+behavior patch only after upstream contains its equivalent source and
+regression coverage. Rollback must restore the complete previously verified
+wrapper commit/tag, including its matching `APM_VERSION`, patches, tests, and
+documentation; changing only the version pin can leave an incompatible patch
+set. Inactive patches remain source archives and require a reviewed change,
+full verification, and a new wrapper release before they can affect a sidecar
+binary.

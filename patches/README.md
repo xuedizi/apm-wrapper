@@ -1,7 +1,8 @@
 # patches
 
 Out-of-tree patches against upstream `microsoft/apm`, applied by
-`apm-wrapper/scripts/build-apm.sh`.
+`apm-wrapper/scripts/build-apm.sh`. Only top-level `*.patch` files in this
+directory are active build inputs.
 
 - `APM_VERSION` pins the upstream tag.
 - `gitlab-policy-discovery.patch` recognizes `gitlab.auto-pai.cn` by default and
@@ -20,9 +21,6 @@ Out-of-tree patches against upstream `microsoft/apm`, applied by
   declared ref changes or legitimate semver tag changes as expected content
   hash changes. Its hermetic tests cover one-command parent/child convergence,
   no redundant download, and rejection of an unchanged moved tag.
-- `marketplace-provenance.patch` preserves Marketplace origin metadata when a
-  lockfile rebuild resolves the dependency to the same non-empty commit. Its
-  focused regression rejects inheritance for missing or changed commits.
 
 General GitLab install, download, and Marketplace behavior remains owned by
 upstream APM 0.26. The narrow downstream policy patch owns only self-managed
@@ -35,3 +33,7 @@ source fix and regressions. Delete any other behavior patch only after upstream
 carries its equivalent source fix and regressions. To roll back, restore the
 complete prior wrapper baseline commit/tag, including its matching patches and
 tests; do not change only `APM_VERSION`.
+
+Inactive diagnostic or recovery patches, including the archived Marketplace
+provenance patch, are documented in `../disabled-patches/README.md` and are
+never applied from this directory.

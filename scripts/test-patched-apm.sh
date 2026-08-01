@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply every downstream patch to the pinned upstream tag and run the
+# Apply every active downstream patch to the pinned upstream tag and run the
 # regressions that must pass before any native release build starts.
 set -euo pipefail
 
@@ -25,6 +25,10 @@ git -c http.version=HTTP/1.1 clone --depth 1 --branch "$APM_VERSION" \
 
 shopt -s nullglob
 for patch_file in "$PATCH_DIR"/*.patch; do
+	[ -f "$patch_file" ] && [ ! -L "$patch_file" ] || {
+		echo "test-patched-apm.sh: active patch must be a real regular file: $patch_file" >&2
+		exit 1
+	}
 	echo ">> applying $(basename "$patch_file")"
 	(cd "$WORK/src" && git apply "$patch_file")
 done
@@ -46,6 +50,5 @@ done
 		tests/unit/integration/test_targets.py \
 		tests/unit/test_install_update_refs.py \
 		tests/unit/install/phases/test_resolve_phase_spec_drift.py \
-		tests/unit/install/phases/test_lockfile_marketplace_provenance.py \
 		tests/integration/test_literal_ref_refresh_convergence.py
 )

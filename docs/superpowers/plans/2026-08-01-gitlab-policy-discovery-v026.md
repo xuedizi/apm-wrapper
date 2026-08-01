@@ -16,9 +16,11 @@ Wrapper repository:
 
 - Create `patches/gitlab-policy-discovery.patch`: GitLab policy behavior and upstream regressions.
 - Modify `patches/README.md` and `README.md`: document the narrow downstream scope.
-- Modify `scripts/build-apm_test.sh`: require the exact four-patch set and verify ownership.
+- Modify `scripts/build-apm_test.sh`: require the exact three-active-patch set and verify ownership.
 - Modify `scripts/test-patched-apm.sh`: run the focused upstream regressions.
-- Keep `ide.patch`, `literal-ref-refresh.patch`, and `marketplace-provenance.patch` byte-identical.
+- Keep `ide.patch` and `literal-ref-refresh.patch` byte-identical to current
+  `main`. Keep `disabled-patches/marketplace-provenance.patch` byte-identical to
+  its former active copy at `6ea5b8b`, present, and inactive.
 
 Upstream paths captured inside the new patch:
 
@@ -31,7 +33,7 @@ TAC files must be discovered from fresh canonical Gerrit `master`. Modify only a
 
 ### Task 1: Prove the APM 0.26 regression
 
-- [ ] **Step 1: Create a disposable upstream checkout and apply the current three patches**
+- [ ] **Step 1: Create a disposable upstream checkout and apply current `main`'s two active patches**
 
 ```bash
 UPSTREAM_WORK=$(mktemp -d /private/tmp/apm-v026-gitlab.XXXXXX)
@@ -42,7 +44,10 @@ done
 git -C "$UPSTREAM_WORK/source" status --short
 ```
 
-Expected: only the existing three wrapper patches are present. Record their baseline diff so the new patch cannot absorb those hunks.
+Expected: only `ide.patch` and `literal-ref-refresh.patch` are present before
+the GitLab patch is added. The Marketplace provenance patch remains under
+`disabled-patches/` and is not applied. Record the active baseline diff so the
+new patch cannot absorb those hunks.
 
 - [ ] **Step 2: Write failing hostname and routing tests**
 
@@ -185,10 +190,9 @@ Update `scripts/build-apm_test.sh` to require this exact lexical set:
 gitlab-policy-discovery.patch
 ide.patch
 literal-ref-refresh.patch
-marketplace-provenance.patch
 ```
 
-Require the two source and two test paths, `/api/v4/projects/`, `PRIVATE-TOKEN`, `cache_only`, and `gitlab.auto-pai.cn`. Reject Marketplace/install/lockfile paths. Run the shell test before adding the patch and observe the missing-patch failure.
+Require the two source and two test paths, `/api/v4/projects/`, `PRIVATE-TOKEN`, `cache_only`, and `gitlab.auto-pai.cn`. Reject Marketplace/install/lockfile paths. Assert that the archived Marketplace patch is present but inactive. Run the shell test before adding the patch and observe the missing-patch failure.
 
 - [ ] **Step 3: Add the patch and release-test selection**
 
@@ -212,12 +216,14 @@ bash scripts/test-patched-apm.sh
 git diff --check
 ```
 
-- [ ] **Step 6: Prove the other patches are byte-identical**
+- [ ] **Step 6: Prove active baselines and the inactive archive are byte-identical**
 
 ```bash
-for patch_file in ide.patch literal-ref-refresh.patch marketplace-provenance.patch; do
-  git diff --exit-code 6ea5b8b -- "patches/$patch_file"
+for patch_file in ide.patch literal-ref-refresh.patch; do
+  cmp "patches/$patch_file" <(git show main:"patches/$patch_file")
 done
+cmp disabled-patches/marketplace-provenance.patch \
+  <(git show 6ea5b8b:patches/marketplace-provenance.patch)
 ```
 
 - [ ] **Step 7: Commit the wrapper implementation**
@@ -310,6 +316,11 @@ Also run the real five-stage drivers with formal `.3.3`, preserving the Marketpl
 make asset-lifecycle-e2e
 make asset-lifecycle-marketplace-e2e
 ```
+
+Run and record the real Marketplace gate even though Marketplace provenance is
+inactive. Only the already-known Frozen missing-provenance mismatch may be
+accepted for this rollout; registry mutation or any other failure still blocks
+release.
 
 - [ ] **Step 6: Verify minimal diff and commit**
 

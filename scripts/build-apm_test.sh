@@ -16,20 +16,31 @@ pass "build-apm.sh is executable"
 	|| fail "scripts/test-patched-apm.sh must be an executable release gate"
 
 [ -f patches/APM_VERSION ] || fail "patches/APM_VERSION must pin upstream microsoft/apm"
-[ -f patches/gitlab-policy-discovery.patch ] \
-	|| fail "patches/gitlab-policy-discovery.patch must restore self-managed GitLab policy discovery"
-[ -f patches/ide.patch ] || fail "patches/ide.patch must carry TAC IDE target support"
-[ -f patches/literal-ref-refresh.patch ] \
-	|| fail "patches/literal-ref-refresh.patch must carry single-command literal ref refresh"
-[ -f patches/marketplace-provenance.patch ] \
-	|| fail "patches/marketplace-provenance.patch must preserve Marketplace lock provenance"
+[ -f patches/gitlab-policy-discovery.patch ] && [ ! -L patches/gitlab-policy-discovery.patch ] \
+	|| fail "patches/gitlab-policy-discovery.patch must be a real regular file"
+[ -f patches/ide.patch ] && [ ! -L patches/ide.patch ] \
+	|| fail "patches/ide.patch must be a real regular file with TAC IDE target support"
+[ -f patches/literal-ref-refresh.patch ] && [ ! -L patches/literal-ref-refresh.patch ] \
+	|| fail "patches/literal-ref-refresh.patch must be a real regular file"
+[ -f disabled-patches/README.md ] \
+	|| fail "disabled-patches/README.md must document inactive patch policy"
+[ -f disabled-patches/marketplace-provenance.patch ] && \
+	[ ! -L disabled-patches/marketplace-provenance.patch ] \
+	|| fail "disabled-patches must retain the Marketplace provenance archive as a real regular file"
+[ ! -f patches/marketplace-provenance.patch ] \
+	|| fail "Marketplace provenance patch must not be active"
 [ "$(cat patches/APM_VERSION)" = "v0.26.0" ] \
 	|| fail "patches/APM_VERSION must pin upstream v0.26.0"
 [ ! -f patches/codebuddy.patch ] || fail "patches/codebuddy.patch should be renamed to patches/ide.patch"
-patch_names=$(find patches -maxdepth 1 -type f -name '*.patch' -exec basename {} \; | sort)
-[ "$patch_names" = "$(printf '%s\n' gitlab-policy-discovery.patch ide.patch literal-ref-refresh.patch marketplace-provenance.patch)" ] \
-	|| fail "expected exactly gitlab-policy-discovery.patch, ide.patch, literal-ref-refresh.patch, and marketplace-provenance.patch, got: $patch_names"
-pass "patch inputs exist"
+shopt -s nullglob
+patch_names=$(
+	for patch_path in patches/*.patch; do
+		basename "$patch_path"
+	done | sort
+)
+[ "$patch_names" = "$(printf '%s\n' gitlab-policy-discovery.patch ide.patch literal-ref-refresh.patch)" ] \
+	|| fail "expected exactly active gitlab-policy-discovery.patch, ide.patch, and literal-ref-refresh.patch, got: $patch_names"
+pass "active and archived patch inputs are separated"
 
 python3 - patches/gitlab-policy-discovery.patch <<'PY'
 from pathlib import Path
@@ -107,12 +118,17 @@ grep -q 'tests/integration/test_literal_ref_refresh_convergence.py' \
 	|| fail "literal ref refresh patch should carry its hermetic convergence regression"
 pass "literal ref refresh patch carries source and regression coverage"
 
-grep -q 'src/apm_cli/install/phases/lockfile.py' patches/marketplace-provenance.patch \
-	|| fail "Marketplace provenance patch should own lockfile preservation"
+grep -q 'src/apm_cli/install/phases/lockfile.py' \
+	disabled-patches/marketplace-provenance.patch \
+	|| fail "inactive Marketplace provenance archive should retain its source fix"
 grep -q 'tests/unit/install/phases/test_lockfile_marketplace_provenance.py' \
-	patches/marketplace-provenance.patch \
-	|| fail "Marketplace provenance patch should carry focused regression coverage"
-pass "Marketplace provenance behavior is isolated in its own patch"
+	disabled-patches/marketplace-provenance.patch \
+	|| fail "inactive Marketplace provenance archive should retain its regression"
+if grep -q 'disabled-patches\|test_lockfile_marketplace_provenance' \
+	scripts/build-apm.sh scripts/test-patched-apm.sh; then
+	fail "build and patched-upstream regression scripts must not consume inactive patches"
+fi
+pass "Marketplace provenance patch is archived and inactive"
 
 workflow=.github/workflows/release.yml
 grep -q '^  patch-tests:$' "$workflow" \
