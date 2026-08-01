@@ -4,6 +4,11 @@ Out-of-tree patches against upstream `microsoft/apm`, applied by
 `apm-wrapper/scripts/build-apm.sh`.
 
 - `APM_VERSION` pins the upstream tag.
+- `gitlab-policy-discovery.patch` recognizes `gitlab.auto-pai.cn` by default and
+  uses GitLab REST v4 for self-managed GitLab organization-policy discovery and
+  same-host `extends` parents. It preserves the upstream candidate cascade,
+  cache-only and stale-cache behavior, hash pins, warnings, and cross-host
+  rejection.
 - `ide.patch` adds the `codebuddy` and `tc` targets missing from upstream APM
   0.26. CodeBuddy uses `.codebuddy/`; TC uses `.claude/` and is explicit-only
   (not auto-detected and not part of `all`). Both share the Claude compile
@@ -19,11 +24,14 @@ Out-of-tree patches against upstream `microsoft/apm`, applied by
   lockfile rebuild resolves the dependency to the same non-empty commit. Its
   focused regression rejects inheritance for missing or changed commits.
 
-No policy, registry, safe-install, or attestation behavior is patched
-downstream. Those capabilities remain owned by standard APM 0.26, while TCLI
+General GitLab install, download, and Marketplace behavior remains owned by
+upstream APM 0.26. The narrow downstream policy patch owns only self-managed
+GitLab organization-policy discovery and same-host inheritance. Registry,
+safe-install, and attestation behavior remains standard APM 0.26, while TCLI
 coordinates initialization with standard APM commands.
 
-Delete either behavior patch only after an upstream release carries its source
-fix and regressions. To roll back, restore the complete prior wrapper baseline
-commit/tag, including its v0.24-compatible IDE patch and tests; do not change
-only `APM_VERSION`.
+Delete the GitLab policy patch only after an upstream release carries both its
+source fix and regressions. Delete any other behavior patch only after upstream
+carries its equivalent source fix and regressions. To roll back, restore the
+complete prior wrapper baseline commit/tag, including its matching patches and
+tests; do not change only `APM_VERSION`.

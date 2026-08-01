@@ -1,0 +1,866 @@
+diff --git a/src/apm_cli/policy/discovery.py b/src/apm_cli/policy/discovery.py
+index 7617b01a61abe9653d245b496e1001751709adb9..7cc8aa89ec4de8370fdc44bdbc20e86c7c4688be 100644
+--- a/src/apm_cli/policy/discovery.py
++++ b/src/apm_cli/policy/discovery.py
+@@ -36,7 +36,7 @@ import threading
+ import time
+ from dataclasses import dataclass, field
+ from pathlib import Path
+-from urllib.parse import urlparse
++from urllib.parse import quote, urlparse
+ 
+ import requests
+ import yaml
+@@ -45,6 +45,7 @@ from ..cache.url_normalize import SCP_LIKE_RE
+ from ..utils.github_host import (
+     build_ado_api_url,
+     is_azure_devops_hostname,
++    is_gitlab_hostname,
+     is_visualstudio_legacy_hostname,
+ )
+ from ..utils.path_security import PathTraversalError, ensure_path_within
+@@ -539,6 +540,27 @@ def _fetch_chain_parent(
+             **cache_kwargs,
+         )
+ 
++    if leaf_host and is_gitlab_hostname(leaf_host) and parent_ref != "org":
++        parts = parent_ref.strip("/").split("/")
++        explicit_host = _extract_extends_host(parent_ref)
++        if explicit_host is not None:
++            project_path = "/".join(parts[1:])
++        elif len(parts) >= 2:
++            project_path = "/".join(parts)
++        else:
++            return PolicyFetchResult(
++                source=f"org:{leaf_host}/{parent_ref}",
++                error=f"Invalid GitLab policy reference: {parent_ref}",
++                outcome="cache_miss_fetch_fail",
++            )
++        return _fetch_from_gitlab_repo(
++            project_path=project_path,
++            host=leaf_host,
++            project_root=project_root,
++            no_cache=no_cache,
++            **cache_kwargs,
++        )
++
+     normalized_ref = parent_ref
+     if leaf_host and leaf_host != "github.com" and _extract_extends_host(parent_ref) is None:
+         if "/" in parent_ref:
+@@ -842,6 +864,7 @@ def _auto_discover(
+     org, host = org_and_host
+     candidates = _policy_repo_candidates(host)
+     is_ado = is_azure_devops_hostname(host)
++    is_gitlab = not is_ado and is_gitlab_hostname(host)
+ 
+     for candidate_repo in candidates:
+         logger.debug("Trying org policy repo candidate %s on host %s", candidate_repo, host)
+@@ -856,6 +879,15 @@ def _auto_discover(
+                 expected_hash=expected_hash,
+                 cache_only=cache_only,
+             )
++        elif is_gitlab:
++            result = _fetch_from_gitlab_repo(
++                project_path=f"{org}/{candidate_repo}",
++                host=host,
++                project_root=project_root,
++                no_cache=no_cache,
++                expected_hash=expected_hash,
++                cache_only=cache_only,
++            )
+         else:
+             repo_ref = f"{org}/{candidate_repo}"
+             if host and host != "github.com":
+@@ -1395,6 +1427,158 @@ def _fetch_ado_contents(
+         return None, f"Error fetching policy from {repo_ref}: {e}"
+ 
+ 
++# ---------------------------------------------------------------------------
++# GitLab policy fetch
++# ---------------------------------------------------------------------------
++
++
++def _fetch_from_gitlab_repo(
++    *,
++    project_path: str,
++    host: str,
++    project_root: Path,
++    no_cache: bool = False,
++    expected_hash: str | None = None,
++    cache_only: bool = False,
++) -> PolicyFetchResult:
++    """Fetch ``apm-policy.yml`` from a GitLab project via REST v4."""
++    repo_ref = f"{host}/{project_path}"
++    source_label = f"org:{repo_ref}"
++    cache_entry: _CacheEntry | None = None
++    cache_entry_persisted = _cache_entry_files_exist(repo_ref, project_root)
++
++    if not no_cache:
++        cache_entry = _read_cache_entry(repo_ref, project_root, expected_hash=expected_hash)
++        if cache_entry is not None and not cache_entry.stale:
++            outcome = "empty" if _is_policy_empty(cache_entry.policy) else "found"
++            return PolicyFetchResult(
++                policy=cache_entry.policy,
++                source=cache_entry.source,
++                cached=True,
++                cache_age_seconds=cache_entry.age_seconds,
++                outcome=outcome,
++                raw_bytes_hash=cache_entry.raw_bytes_hash or None,
++                expected_hash=expected_hash,
++                warnings=cache_entry.warnings,
++            )
++
++    if cache_only:
++        return _cache_only_policy_result(
++            cache_entry,
++            source_label=source_label,
++            expected_hash=expected_hash,
++            cache_entry_persisted=cache_entry_persisted,
++        )
++
++    content, error = _fetch_gitlab_contents(
++        project_path,
++        "apm-policy.yml",
++        host=host,
++    )
++
++    if error:
++        if "404" in error:
++            return PolicyFetchResult(source=source_label, outcome="absent")
++        return _stale_fallback_or_error(
++            cache_entry,
++            error,
++            source_label,
++            "cache_miss_fetch_fail",
++        )
++
++    if content is None:
++        return PolicyFetchResult(source=source_label, outcome="absent")
++
++    garbage_result = _detect_garbage(content, repo_ref, source_label, cache_entry)
++    if garbage_result is not None:
++        return garbage_result
++
++    mismatch = _verify_hash_pin(content, expected_hash, source_label)
++    if mismatch is not None:
++        return mismatch
++
++    try:
++        policy, warnings = load_policy(content)
++    except PolicyValidationError as e:
++        return PolicyFetchResult(
++            error=f"Invalid policy in {repo_ref}: {e}",
++            source=source_label,
++            outcome="malformed",
++            warnings=e.warnings,
++        )
++
++    chain_refs = [repo_ref]
++    actual_hash = _compute_hash_normalized(content, expected_hash)
++    if policy.extends is None:
++        _write_cache(
++            repo_ref,
++            policy,
++            project_root,
++            chain_refs=chain_refs,
++            raw_bytes_hash=actual_hash,
++            warnings=warnings,
++        )
++    outcome = "empty" if _is_policy_empty(policy) else "found"
++    return PolicyFetchResult(
++        policy=policy,
++        source=source_label,
++        outcome=outcome,
++        raw_bytes_hash=actual_hash,
++        expected_hash=expected_hash,
++        warnings=warnings,
++    )
++
++
++def _fetch_gitlab_contents(
++    project_path: str,
++    file_path: str,
++    *,
++    host: str,
++) -> tuple[str | None, str | None]:
++    """Fetch a raw file through GitLab REST v4."""
++    encoded_project = quote(project_path, safe="")
++    encoded_file = quote(file_path, safe="")
++    api_base = f"https://{host}/api/v4/projects/{encoded_project}"
++    headers = {"Accept": "application/json"}
++    token = _get_token_for_host(host)
++    if token:
++        headers["PRIVATE-TOKEN"] = token
++
++    last_error: str | None = None
++    for ref in ("main", "master"):
++        api_url = f"{api_base}/repository/files/{encoded_file}/raw?ref={quote(ref, safe='')}"
++        try:
++            resp = requests.get(
++                api_url,
++                headers=headers,
++                timeout=10,
++                allow_redirects=False,
++            )
++            if resp.status_code == 404:
++                last_error = "404: Policy file not found"
++                continue
++            if resp.status_code == 401:
++                return None, f"401: Authentication required for {project_path}"
++            if resp.status_code == 403:
++                return None, f"403: Access denied to {project_path}"
++            if 300 <= resp.status_code < 400:
++                location = resp.headers.get("Location", "<no Location header>")
++                return None, (
++                    f"Refusing HTTP redirect ({resp.status_code}) from {api_url} to {location}"
++                )
++            if resp.status_code != 200:
++                return None, f"HTTP {resp.status_code} fetching policy from {project_path}"
++            return resp.text, None
++        except requests.exceptions.Timeout:
++            return None, f"Timeout fetching policy from {project_path}"
++        except requests.exceptions.ConnectionError:
++            return None, f"Connection error fetching policy from {project_path}"
++        except Exception as e:
++            return None, f"Error fetching policy from {project_path}: {e}"
++
++    return None, last_error or "404: Policy file not found"
++
++
+ def _is_github_host(host: str) -> bool:
+     """Return True if *host* is a known GitHub-family hostname."""
+     if host == "github.com":
+diff --git a/src/apm_cli/utils/github_host.py b/src/apm_cli/utils/github_host.py
+index 560a73812cabc43d0fe466f5f844105a8810c4aa..c818fc6e5d9b16fa5fede9ffb31715c6f8542d68 100644
+--- a/src/apm_cli/utils/github_host.py
++++ b/src/apm_cli/utils/github_host.py
+@@ -4,6 +4,8 @@ import os
+ import re
+ import urllib.parse
+ 
++_DEFAULT_GITLAB_HOSTS = ("gitlab.auto-pai.cn",)
++
+ 
+ def _get_ghes_host() -> str:
+     """Return the normalised GITHUB_HOST env value."""
+@@ -16,9 +18,10 @@ def _get_gitlab_single_host() -> str:
+ 
+ 
+ def _get_gitlab_hosts_list() -> list[str]:
+-    """Return normalised APM_GITLAB_HOSTS entries."""
++    """Return the ordered union of configured and default GitLab hosts."""
+     raw = os.environ.get("APM_GITLAB_HOSTS", "")
+-    return [part.strip().lower().split("/")[0] for part in raw.split(",") if part.strip()]
++    configured = [part.strip().lower().split("/")[0] for part in raw.split(",") if part.strip()]
++    return list(dict.fromkeys((*configured, *_DEFAULT_GITLAB_HOSTS)))
+ 
+ 
+ def default_host() -> str:
+diff --git a/tests/unit/policy/test_gitlab_discovery.py b/tests/unit/policy/test_gitlab_discovery.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..fd9612be6852b88b057753aec115416ecec78fed
+--- /dev/null
++++ b/tests/unit/policy/test_gitlab_discovery.py
+@@ -0,0 +1,565 @@
++"""Focused regressions for self-managed GitLab organization policy discovery."""
++
++from __future__ import annotations
++
++import hashlib
++import json
++import time
++from pathlib import Path
++from unittest.mock import MagicMock, patch
++from urllib.parse import urlparse
++
++import pytest
++import requests
++
++from apm_cli.policy import discovery
++from apm_cli.policy.discovery import (
++    DEFAULT_CACHE_TTL,
++    PolicyFetchResult,
++    _cache_key,
++    _fetch_chain_parent,
++    _get_cache_dir,
++    _read_cache_entry,
++    _write_cache,
++    discover_policy_with_chain,
++)
++from apm_cli.policy.inheritance import PolicyInheritanceError
++from apm_cli.policy.schema import ApmPolicy, DependencyPolicy
++
++HOST = "gitlab.auto-pai.cn"
++LEAF_PROJECT = "tc-platform/.github-private"
++LEAF_REF = f"{HOST}/{LEAF_PROJECT}"
++POLICY_YAML = """\
++name: company-policy
++enforcement: block
++dependencies:
++  deny: [blocked/package]
++custom_field: preserve-this-warning
++"""
++
++
++def _gitlab_repo_fetch():
++    assert hasattr(discovery, "_fetch_from_gitlab_repo"), (
++        "GitLab repository policy helper is missing"
++    )
++    return discovery._fetch_from_gitlab_repo
++
++
++def _gitlab_transport():
++    assert hasattr(discovery, "_fetch_gitlab_contents"), (
++        "GitLab raw-file transport helper is missing"
++    )
++    return discovery._fetch_gitlab_contents
++
++
++def _response(status_code: int, text: str = "", **headers: str) -> MagicMock:
++    response = MagicMock()
++    response.status_code = status_code
++    response.text = text
++    response.headers = headers
++    return response
++
++
++def _make_stale_cache(tmp_path: Path, repo_ref: str = LEAF_REF) -> ApmPolicy:
++    policy = ApmPolicy(
++        name="cached-company-policy",
++        enforcement="block",
++        dependencies=DependencyPolicy(deny=("cached/blocked",)),
++    )
++    _write_cache(repo_ref, policy, tmp_path, warnings=["cached warning"])
++    meta_file = _get_cache_dir(tmp_path) / f"{_cache_key(repo_ref)}.meta.json"
++    metadata = json.loads(meta_file.read_text(encoding="utf-8"))
++    metadata["cached_at"] = time.time() - DEFAULT_CACHE_TTL - 100
++    meta_file.write_text(json.dumps(metadata), encoding="utf-8")
++    return policy
++
++
++def test_auto_discovery_routes_gitlab_candidate_and_forwards_controls(tmp_path):
++    gitlab_fetch = MagicMock(
++        return_value=PolicyFetchResult(source=f"org:{LEAF_REF}", outcome="found")
++    )
++
++    with (
++        patch.object(
++            discovery,
++            "_extract_org_from_git_remote",
++            return_value=("tc-platform", HOST),
++        ),
++        patch.object(discovery, "_fetch_from_gitlab_repo", gitlab_fetch, create=True),
++        patch.object(discovery, "_fetch_from_repo") as github_fetch,
++    ):
++        result = discovery._auto_discover(
++            tmp_path,
++            no_cache=True,
++            expected_hash="sha256:" + "a" * 64,
++            cache_only=True,
++        )
++
++    assert result.outcome == "found"
++    gitlab_fetch.assert_called_once_with(
++        project_path=LEAF_PROJECT,
++        host=HOST,
++        project_root=tmp_path,
++        no_cache=True,
++        expected_hash="sha256:" + "a" * 64,
++        cache_only=True,
++    )
++    github_fetch.assert_not_called()
++
++
++def test_auto_discovery_preserves_candidate_cascade_for_gitlab(tmp_path):
++    gitlab_fetch = MagicMock(
++        side_effect=[
++            PolicyFetchResult(outcome="absent"),
++            PolicyFetchResult(outcome="absent"),
++            PolicyFetchResult(source=f"org:{HOST}/tc-platform/.apm", outcome="found"),
++        ]
++    )
++    with (
++        patch.object(
++            discovery,
++            "_extract_org_from_git_remote",
++            return_value=("tc-platform", HOST),
++        ),
++        patch.object(discovery, "_fetch_from_gitlab_repo", gitlab_fetch, create=True),
++    ):
++        result = discovery._auto_discover(tmp_path, no_cache=True, cache_only=True)
++
++    assert result.outcome == "found"
++    assert [call.kwargs["project_path"] for call in gitlab_fetch.call_args_list] == [
++        "tc-platform/.github-private",
++        "tc-platform/.github",
++        "tc-platform/.apm",
++    ]
++    assert all(call.kwargs["no_cache"] is True for call in gitlab_fetch.call_args_list)
++    assert all(call.kwargs["cache_only"] is True for call in gitlab_fetch.call_args_list)
++
++
++def test_repository_fresh_cache_hit_suppresses_transport(tmp_path):
++    expected = ApmPolicy(name="cached", enforcement="block")
++    _write_cache(LEAF_REF, expected, tmp_path)
++
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        side_effect=AssertionError("fresh cache hit reached GitLab transport"),
++        create=True,
++    ) as transport:
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++        )
++
++    assert result.policy == expected
++    assert result.cached is True
++    assert result.source == f"org:{LEAF_REF}"
++    transport.assert_not_called()
++
++
++def test_repository_cache_only_miss_suppresses_transport(tmp_path):
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        side_effect=AssertionError("cache-only lookup reached GitLab transport"),
++        create=True,
++    ) as transport:
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++            cache_only=True,
++        )
++
++    assert result.outcome == "absent"
++    assert result.policy is None
++    assert result.source == f"org:{LEAF_REF}"
++    transport.assert_not_called()
++
++
++def test_repository_success_preserves_source_hash_warnings_and_cache(tmp_path):
++    expected_hash = "sha256:" + hashlib.sha256(POLICY_YAML.encode()).hexdigest()
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=(POLICY_YAML, None),
++        create=True,
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++            no_cache=True,
++            expected_hash=expected_hash,
++        )
++
++    assert result.outcome == "found"
++    assert result.policy is not None
++    assert result.policy.enforcement == "block"
++    assert result.source == f"org:{LEAF_REF}"
++    assert result.raw_bytes_hash == expected_hash
++    assert result.expected_hash == expected_hash
++    assert any("custom_field" in warning for warning in result.warnings)
++    cached = _read_cache_entry(LEAF_REF, tmp_path, expected_hash=expected_hash)
++    assert cached is not None
++    assert cached.policy == result.policy
++    assert cached.raw_bytes_hash == expected_hash
++    assert cached.warnings == result.warnings
++
++
++def test_repository_extending_leaf_waits_for_merged_cache(tmp_path):
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=("name: leaf\nextends: platform/policy\n", None),
++        create=True,
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++            no_cache=True,
++        )
++
++    assert result.policy is not None
++    assert result.policy.extends == "platform/policy"
++    assert _read_cache_entry(LEAF_REF, tmp_path) is None
++
++
++def test_repository_hash_mismatch_fails_closed(tmp_path):
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=(POLICY_YAML, None),
++        create=True,
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++            no_cache=True,
++            expected_hash="sha256:" + "0" * 64,
++        )
++
++    assert result.outcome == "hash_mismatch"
++    assert result.policy is None
++    assert result.error is not None and "mismatch" in result.error.lower()
++
++
++def test_repository_garbage_response_fails_closed(tmp_path):
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=("<html>sign in</html>", None),
++        create=True,
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++            no_cache=True,
++        )
++
++    assert result.outcome == "garbage_response"
++    assert result.policy is None
++
++
++def test_repository_404_is_absent(tmp_path):
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=(None, "404: Policy file not found"),
++        create=True,
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++            no_cache=True,
++        )
++
++    assert result.outcome == "absent"
++    assert result.policy is None
++    assert result.error is None
++
++
++@pytest.mark.parametrize(
++    "error",
++    [
++        "401: Authentication required for tc-platform/.github-private",
++        "403: Access denied to tc-platform/.github-private",
++        "Refusing HTTP redirect (302) from source to target",
++        "Timeout fetching policy from tc-platform/.github-private",
++    ],
++)
++def test_repository_auth_redirect_and_timeout_fail_closed_without_cache(tmp_path, error):
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=(None, error),
++        create=True,
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++        )
++
++    assert result.outcome == "cache_miss_fetch_fail"
++    assert result.policy is None
++    assert result.error == error
++    assert result.fetch_error == error
++
++
++@pytest.mark.parametrize(
++    "error",
++    [
++        "403: Access denied to tc-platform/.github-private",
++        "Timeout fetching policy from tc-platform/.github-private",
++    ],
++)
++def test_repository_auth_and_timeout_use_stale_cache(tmp_path, error):
++    expected = _make_stale_cache(tmp_path)
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=(None, error),
++        create=True,
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=LEAF_PROJECT,
++            host=HOST,
++            project_root=tmp_path,
++        )
++
++    assert result.outcome == "cached_stale"
++    assert result.policy == expected
++    assert result.cached is True
++    assert result.cache_stale is True
++    assert result.fetch_error == error
++    assert result.warnings == ["cached warning"]
++
++
++def test_transport_encodes_nested_paths_sends_token_and_falls_back_to_master():
++    responses = [_response(404), _response(200, POLICY_YAML)]
++    with (
++        patch.object(discovery, "_get_token_for_host", return_value="gitlab-secret") as token,
++        patch.object(discovery.requests, "get", side_effect=responses) as get,
++    ):
++        content, error = _gitlab_transport()(
++            "tc-platform/nested/policy",
++            "policies/org/apm-policy.yml",
++            host=HOST,
++        )
++
++    assert content == POLICY_YAML
++    assert error is None
++    token.assert_called_once_with(HOST)
++    assert [call.args[0] for call in get.call_args_list] == [
++        f"https://{HOST}/api/v4/projects/tc-platform%2Fnested%2Fpolicy/"
++        "repository/files/policies%2Forg%2Fapm-policy.yml/raw?ref=main",
++        f"https://{HOST}/api/v4/projects/tc-platform%2Fnested%2Fpolicy/"
++        "repository/files/policies%2Forg%2Fapm-policy.yml/raw?ref=master",
++    ]
++    for request_call in get.call_args_list:
++        assert request_call.kwargs["headers"] == {
++            "Accept": "application/json",
++            "PRIVATE-TOKEN": "gitlab-secret",
++        }
++        assert request_call.kwargs["timeout"] == 10
++        assert request_call.kwargs["allow_redirects"] is False
++
++
++def test_transport_200_on_main_does_not_try_master():
++    with (
++        patch.object(discovery, "_get_token_for_host", return_value=None),
++        patch.object(discovery.requests, "get", return_value=_response(200, POLICY_YAML)) as get,
++    ):
++        content, error = _gitlab_transport()(LEAF_PROJECT, "apm-policy.yml", host=HOST)
++
++    assert content == POLICY_YAML
++    assert error is None
++    assert get.call_count == 1
++    assert get.call_args.kwargs["headers"] == {"Accept": "application/json"}
++    assert get.call_args.args[0].endswith("?ref=main")
++
++
++@pytest.mark.parametrize(
++    ("response", "error_fragment"),
++    [
++        (_response(401), "401: Authentication required"),
++        (_response(403), "403: Access denied"),
++        (_response(302, Location="https://evil.example/policy"), "Refusing HTTP redirect"),
++        (_response(500), "HTTP 500"),
++    ],
++)
++def test_transport_auth_redirect_and_non_200_fail_without_ref_fallback(response, error_fragment):
++    with (
++        patch.object(discovery, "_get_token_for_host", return_value=None),
++        patch.object(discovery.requests, "get", return_value=response) as get,
++    ):
++        content, error = _gitlab_transport()(LEAF_PROJECT, "apm-policy.yml", host=HOST)
++
++    assert content is None
++    assert error is not None and error_fragment in error
++    assert get.call_count == 1
++
++
++@pytest.mark.parametrize(
++    ("exception", "error_fragment"),
++    [
++        (requests.exceptions.Timeout(), "Timeout"),
++        (requests.exceptions.ConnectionError(), "Connection error"),
++    ],
++)
++def test_transport_network_failures_fail_without_ref_fallback(exception, error_fragment):
++    with (
++        patch.object(discovery, "_get_token_for_host", return_value=None),
++        patch.object(discovery.requests, "get", side_effect=exception) as get,
++    ):
++        content, error = _gitlab_transport()(LEAF_PROJECT, "apm-policy.yml", host=HOST)
++
++    assert content is None
++    assert error is not None and error_fragment in error
++    assert get.call_count == 1
++
++
++@pytest.mark.parametrize(
++    ("parent_ref", "expected_project_path"),
++    [
++        ("platform/policy", "platform/policy"),
++        (f"{HOST}/platform/policy", "platform/policy"),
++    ],
++)
++def test_parent_shorthand_and_explicit_host_keep_gitlab_backend_and_controls(
++    tmp_path, parent_ref, expected_project_path
++):
++    gitlab_fetch = MagicMock(
++        return_value=PolicyFetchResult(
++            policy=ApmPolicy(name="parent"),
++            source=f"org:{HOST}/{expected_project_path}",
++            outcome="found",
++        )
++    )
++    with (
++        patch.object(discovery, "_fetch_from_gitlab_repo", gitlab_fetch, create=True),
++        patch.object(discovery, "discover_policy") as generic_fetch,
++    ):
++        result = _fetch_chain_parent(
++            parent_ref,
++            current_source=f"org:{LEAF_REF}",
++            leaf_host=HOST,
++            project_root=tmp_path,
++            no_cache=True,
++            cache_only=True,
++        )
++
++    assert result.policy is not None
++    gitlab_fetch.assert_called_once_with(
++        project_path=expected_project_path,
++        host=HOST,
++        project_root=tmp_path,
++        no_cache=True,
++        cache_only=True,
++    )
++    generic_fetch.assert_not_called()
++
++
++def test_parent_org_sentinel_continues_through_auto_discovery(tmp_path):
++    expected = PolicyFetchResult(policy=ApmPolicy(name="org"), outcome="found")
++    with (
++        patch.object(discovery, "discover_policy", return_value=expected) as generic_fetch,
++        patch.object(discovery, "_fetch_from_gitlab_repo", create=True) as gitlab_fetch,
++    ):
++        result = _fetch_chain_parent(
++            "org",
++            current_source=f"org:{LEAF_REF}",
++            leaf_host=HOST,
++            project_root=tmp_path,
++            no_cache=True,
++            cache_only=True,
++        )
++
++    assert result is expected
++    generic_fetch.assert_called_once_with(
++        tmp_path,
++        policy_override="org",
++        no_cache=True,
++        cache_only=True,
++    )
++    gitlab_fetch.assert_not_called()
++
++
++@pytest.mark.parametrize("parent_ref", ["platform/policy", f"{HOST}/platform/policy"])
++def test_cold_gitlab_leaf_parent_merge_and_warm_cache_suppress_network(tmp_path, parent_ref):
++    leaf_yaml = f"""\
++name: child
++extends: {parent_ref}
++dependencies:
++  deny: [child/deny]
++"""
++    parent_yaml = """\
++name: parent
++enforcement: block
++dependencies:
++  require_pinned_constraint: true
++"""
++
++    def get(url: str, **_kwargs) -> MagicMock:
++        parsed = urlparse(url)
++        if "tc-platform%2F.github-private" in parsed.path:
++            return _response(200, leaf_yaml)
++        if "platform%2Fpolicy" in parsed.path:
++            return _response(200, parent_yaml)
++        raise AssertionError(f"unexpected GitLab URL: {url}")
++
++    with (
++        patch.object(
++            discovery,
++            "_extract_org_from_git_remote",
++            return_value=("tc-platform", HOST),
++        ),
++        patch.object(discovery, "_get_token_for_host", return_value=None),
++        patch.object(discovery.requests, "get", side_effect=get) as network,
++    ):
++        assert hasattr(discovery, "_fetch_from_gitlab_repo"), (
++            "GitLab repository policy helper is missing"
++        )
++        cold = discover_policy_with_chain(tmp_path)
++        network.side_effect = AssertionError("warm merged-cache read reached network")
++        warm = discover_policy_with_chain(tmp_path)
++
++    assert cold.policy is not None
++    assert cold.policy.enforcement == "block"
++    assert cold.policy.dependencies.deny == ("child/deny",)
++    assert cold.policy.dependencies.require_pinned_constraint is True
++    assert cold.cached is False
++    assert warm.cached is True
++    assert warm.policy == cold.policy
++    assert network.call_count == 2
++    cached = _read_cache_entry(LEAF_REF, tmp_path)
++    assert cached is not None
++    assert cached.chain_refs == [f"{HOST}/platform/policy", LEAF_REF]
++
++
++def test_cross_host_parent_rejected_before_token_or_http(tmp_path):
++    leaf = PolicyFetchResult(
++        policy=ApmPolicy(name="leaf", extends="evil.example.com/platform/policy"),
++        source=f"org:{LEAF_REF}",
++        outcome="found",
++    )
++    with (
++        patch.object(
++            discovery,
++            "_extract_org_from_git_remote",
++            return_value=("tc-platform", HOST),
++        ),
++        patch.object(discovery, "_fetch_from_gitlab_repo", return_value=leaf, create=True),
++        patch.object(discovery, "_get_token_for_host") as token,
++        patch.object(discovery.requests, "get") as network,
++    ):
++        with pytest.raises(PolicyInheritanceError, match="cross-host reference rejected"):
++            discover_policy_with_chain(tmp_path)
++
++    token.assert_not_called()
++    network.assert_not_called()
+diff --git a/tests/unit/test_github_host.py b/tests/unit/test_github_host.py
+index 95562aaa94f30f130644eb2838bb6b73f1c84ea0..06730dcf7d2984f6661c20db166e14f2d24276b2 100644
+--- a/tests/unit/test_github_host.py
++++ b/tests/unit/test_github_host.py
+@@ -77,6 +77,32 @@ def test_is_gitlab_hostname_saas():
+     assert github_host.is_gitlab_hostname("GitLab.COM")
+ 
+ 
++def test_is_gitlab_hostname_tac_default_without_env(monkeypatch):
++    monkeypatch.delenv("GITHUB_HOST", raising=False)
++    monkeypatch.delenv("GITLAB_HOST", raising=False)
++    monkeypatch.delenv("APM_GITLAB_HOSTS", raising=False)
++
++    assert github_host.is_gitlab_hostname("gitlab.auto-pai.cn")
++
++
++def test_default_gitlab_host_keeps_environment_hosts_additive(monkeypatch):
++    monkeypatch.delenv("GITHUB_HOST", raising=False)
++    monkeypatch.delenv("GITLAB_HOST", raising=False)
++    monkeypatch.setenv("APM_GITLAB_HOSTS", "extra.gitlab.example.org")
++
++    assert github_host.is_gitlab_hostname("gitlab.auto-pai.cn")
++    assert github_host.is_gitlab_hostname("extra.gitlab.example.org")
++
++
++def test_default_gitlab_host_conflict_keeps_ghes_precedence(monkeypatch):
++    monkeypatch.setenv("GITHUB_HOST", "gitlab.auto-pai.cn")
++    monkeypatch.delenv("GITLAB_HOST", raising=False)
++    monkeypatch.delenv("APM_GITLAB_HOSTS", raising=False)
++
++    assert github_host.has_github_gitlab_host_env_conflict("gitlab.auto-pai.cn")
++    assert not github_host.is_gitlab_hostname("gitlab.auto-pai.cn")
++
++
+ def test_is_gitlab_hostname_env_gitlab_host(monkeypatch):
+     monkeypatch.setenv("GITLAB_HOST", "git.selfmanaged.example.org")
+     assert github_host.is_gitlab_hostname("git.selfmanaged.example.org")

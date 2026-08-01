@@ -16,6 +16,8 @@ pass "build-apm.sh is executable"
 	|| fail "scripts/test-patched-apm.sh must be an executable release gate"
 
 [ -f patches/APM_VERSION ] || fail "patches/APM_VERSION must pin upstream microsoft/apm"
+[ -f patches/gitlab-policy-discovery.patch ] \
+	|| fail "patches/gitlab-policy-discovery.patch must restore self-managed GitLab policy discovery"
 [ -f patches/ide.patch ] || fail "patches/ide.patch must carry TAC IDE target support"
 [ -f patches/literal-ref-refresh.patch ] \
 	|| fail "patches/literal-ref-refresh.patch must carry single-command literal ref refresh"
@@ -25,9 +27,54 @@ pass "build-apm.sh is executable"
 	|| fail "patches/APM_VERSION must pin upstream v0.26.0"
 [ ! -f patches/codebuddy.patch ] || fail "patches/codebuddy.patch should be renamed to patches/ide.patch"
 patch_names=$(find patches -maxdepth 1 -type f -name '*.patch' -exec basename {} \; | sort)
-[ "$patch_names" = "$(printf '%s\n' ide.patch literal-ref-refresh.patch marketplace-provenance.patch)" ] \
-	|| fail "expected exactly ide.patch, literal-ref-refresh.patch, and marketplace-provenance.patch, got: $patch_names"
+[ "$patch_names" = "$(printf '%s\n' gitlab-policy-discovery.patch ide.patch literal-ref-refresh.patch marketplace-provenance.patch)" ] \
+	|| fail "expected exactly gitlab-policy-discovery.patch, ide.patch, literal-ref-refresh.patch, and marketplace-provenance.patch, got: $patch_names"
 pass "patch inputs exist"
+
+python3 - patches/gitlab-policy-discovery.patch <<'PY'
+from pathlib import Path
+import re
+import sys
+
+patch = Path(sys.argv[1]).read_text(encoding="utf-8")
+pairs = [
+    match.groups()
+    for match in re.finditer(r"(?m)^diff --git a/(\S+) b/(\S+)$", patch)
+]
+if any(left != right for left, right in pairs):
+    raise SystemExit(f"FAIL: GitLab patch contains renamed paths: {pairs!r}")
+paths = {left for left, _right in pairs}
+expected = {
+    "src/apm_cli/policy/discovery.py",
+    "src/apm_cli/utils/github_host.py",
+    "tests/unit/policy/test_gitlab_discovery.py",
+    "tests/unit/test_github_host.py",
+}
+if paths != expected:
+    raise SystemExit(
+        "FAIL: gitlab-policy-discovery.patch must own exactly two source and two test "
+        f"paths; expected={sorted(expected)!r}, got={sorted(paths)!r}"
+    )
+
+for forbidden in (
+    "src/apm_cli/install/",
+    "src/apm_cli/marketplace/",
+    "tests/unit/install/",
+    "tests/unit/marketplace/",
+    "pyproject.toml",
+    "uv.lock",
+):
+    if any(path == forbidden or path.startswith(forbidden) for path in paths):
+        raise SystemExit(
+            f"FAIL: gitlab-policy-discovery.patch must not modify install, Marketplace, "
+            f"or lockfile modules: {forbidden}"
+        )
+PY
+for marker in '/api/v4/projects/' PRIVATE-TOKEN cache_only gitlab.auto-pai.cn; do
+	grep -q "$marker" patches/gitlab-policy-discovery.patch \
+		|| fail "gitlab-policy-discovery.patch missing required marker: $marker"
+done
+pass "GitLab policy patch has exact source/test ownership and required behavior markers"
 
 grep -q '"codebuddy"' patches/ide.patch \
 	|| fail "ide.patch should keep CodeBuddy target support"

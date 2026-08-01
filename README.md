@@ -14,8 +14,13 @@ For example, `v0.26.0-tac.v0.3.0` is built from
 
 ## Downstream scope
 
-The wrapper intentionally carries three downstream patches:
+The wrapper intentionally carries four downstream patches:
 
+- `gitlab-policy-discovery.patch` recognizes the company self-managed GitLab
+  host without per-shell configuration and routes organization-policy
+  discovery and same-host `extends` parents through GitLab REST v4. It retains
+  the APM 0.26 candidate cascade, cache, hash-pin, warning, and fail-closed
+  behavior.
 - `ide.patch` adds the `codebuddy` and `tc` targets that upstream APM 0.26
   does not provide. CodeBuddy deploys Claude-compatible assets under
   `.codebuddy/`; TC shares the Claude `.claude/` layout and is explicit-only
@@ -27,9 +32,11 @@ The wrapper intentionally carries three downstream patches:
 - `marketplace-provenance.patch` preserves Marketplace origin metadata across
   lockfile rebuilds only when the resolved commit remains the same.
 
-Marketplace registration, package installation, audit, policy discovery, and
-frozen repair otherwise use standard APM 0.26 behavior. TCLI owns orchestration
-and invokes:
+General GitLab repository install, download, and Marketplace support remains
+upstream APM 0.26 behavior. Only self-managed GitLab organization-policy
+discovery and same-host inheritance are patched here. Marketplace registration,
+package installation, audit, and frozen repair otherwise use standard APM 0.26
+behavior. TCLI owns orchestration and invokes:
 
 ```bash
 apm marketplace add SOURCE --name NAME
@@ -45,6 +52,7 @@ standard APM replace-by-name semantics. TCLI does not require downstream
 
 ```text
 patches/APM_VERSION       upstream microsoft/apm tag
+patches/gitlab-policy-discovery.patch
 patches/ide.patch         codebuddy / tc target support
 patches/literal-ref-refresh.patch
 patches/marketplace-provenance.patch
@@ -98,12 +106,13 @@ ELF/Mach-O/PE header, and a native `apm --version` smoke test. The release job
 verifies the exact six-archive set, stages only those archives, generates and
 verifies the checksum/size manifest, and only then creates the GitHub Release.
 Before the six native builds start, the `patch-tests` job applies all patches
-to a clean pinned checkout and runs the IDE catalog/partitioning, literal-ref,
-hash-integrity, Marketplace provenance, and hermetic graph-convergence
-regressions.
+to a clean pinned checkout and runs the GitLab policy/host, IDE
+catalog/partitioning, literal-ref, hash-integrity, Marketplace provenance, and
+hermetic graph-convergence regressions.
 
-Remove either behavior patch only after a released upstream tag contains
-equivalent behavior and regression coverage. Rollback must restore the complete
-previously verified wrapper commit/tag, including its matching `APM_VERSION`,
-IDE patch, tests, and documentation; changing only the version pin can leave an
-incompatible patch set.
+Remove the GitLab policy patch only after a released upstream tag contains both
+the source behavior and equivalent regressions. Remove any other behavior patch
+only after upstream contains its equivalent source and regression coverage.
+Rollback must restore the complete previously verified wrapper commit/tag,
+including its matching `APM_VERSION`, patches, tests, and documentation;
+changing only the version pin can leave an incompatible patch set.
