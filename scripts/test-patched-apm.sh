@@ -33,7 +33,9 @@ done
 	cd "$WORK/src"
 	uv run --frozen --extra dev pytest -q \
 		tests/unit/test_github_host.py \
+		tests/unit/policy/test_cache_merged_effective.py \
 		tests/unit/policy/test_discovery.py \
+		tests/unit/policy/test_discovery_policy_resolution.py \
 		tests/unit/policy/test_gitlab_discovery.py \
 		tests/unit/core/test_scope.py \
 		tests/unit/core/test_target_catalog.py \

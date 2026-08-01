@@ -1,5 +1,5 @@
 diff --git a/src/apm_cli/policy/discovery.py b/src/apm_cli/policy/discovery.py
-index 7617b01a61abe9653d245b496e1001751709adb9..7cc8aa89ec4de8370fdc44bdbc20e86c7c4688be 100644
+index 7617b01a61abe9653d245b496e1001751709adb9..82c272957b7866e726d35bf59b229f37d0ef84f8 100644
 --- a/src/apm_cli/policy/discovery.py
 +++ b/src/apm_cli/policy/discovery.py
 @@ -36,7 +36,7 @@ import threading
@@ -125,7 +125,7 @@ index 7617b01a61abe9653d245b496e1001751709adb9..7cc8aa89ec4de8370fdc44bdbc20e86c
 +    )
 +
 +    if error:
-+        if "404" in error:
++        if error.startswith("404:"):
 +            return PolicyFetchResult(source=source_label, outcome="absent")
 +        return _stale_fallback_or_error(
 +            cache_entry,
@@ -230,6 +230,25 @@ index 7617b01a61abe9653d245b496e1001751709adb9..7cc8aa89ec4de8370fdc44bdbc20e86c
  def _is_github_host(host: str) -> bool:
      """Return True if *host* is a known GitHub-family hostname."""
      if host == "github.com":
+@@ -1411,14 +1595,15 @@ def _get_token_for_host(host: str) -> str | None:
+     """Get authentication token for a given host.
+ 
+     Environment-variable tokens (GITHUB_TOKEN, GITHUB_APM_PAT, GH_TOKEN)
+-    are only returned when *host* is a recognized GitHub-family hostname.
+-    For other hosts the token manager + git credential helpers are used.
++    are only selected for GitHub-family hosts. GitLab hosts use the dedicated
++    GitLab token precedence before falling back to git credential helpers.
+     """
+     try:
+         from ..core.token_manager import GitHubTokenManager
+ 
+         manager = GitHubTokenManager()
+-        return manager.get_token_with_credential_fallback("modules", host)
++        purpose = "gitlab_modules" if is_gitlab_hostname(host) else "modules"
++        return manager.get_token_with_credential_fallback(purpose, host)
+     except Exception as exc:
+         logger.debug("Token manager failed for %s: %s", host, exc)
+         if _is_github_host(host):
 diff --git a/src/apm_cli/utils/github_host.py b/src/apm_cli/utils/github_host.py
 index 560a73812cabc43d0fe466f5f844105a8810c4aa..c818fc6e5d9b16fa5fede9ffb31715c6f8542d68 100644
 --- a/src/apm_cli/utils/github_host.py
@@ -258,10 +277,10 @@ index 560a73812cabc43d0fe466f5f844105a8810c4aa..c818fc6e5d9b16fa5fede9ffb31715c6
  def default_host() -> str:
 diff --git a/tests/unit/policy/test_gitlab_discovery.py b/tests/unit/policy/test_gitlab_discovery.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..fd9612be6852b88b057753aec115416ecec78fed
+index 0000000000000000000000000000000000000000..305e394d7fec18e03c24b918ae3c9d07a775f497
 --- /dev/null
 +++ b/tests/unit/policy/test_gitlab_discovery.py
-@@ -0,0 +1,565 @@
+@@ -0,0 +1,656 @@
 +"""Focused regressions for self-managed GitLab organization policy discovery."""
 +
 +from __future__ import annotations
@@ -293,6 +312,8 @@ index 0000000000000000000000000000000000000000..fd9612be6852b88b057753aec115416e
 +HOST = "gitlab.auto-pai.cn"
 +LEAF_PROJECT = "tc-platform/.github-private"
 +LEAF_REF = f"{HOST}/{LEAF_PROJECT}"
++PROJECT_WITH_404 = "team404/.github-private"
++REF_WITH_404 = f"{HOST}/{PROJECT_WITH_404}"
 +POLICY_YAML = """\
 +name: company-policy
 +enforcement: block
@@ -550,6 +571,64 @@ index 0000000000000000000000000000000000000000..fd9612be6852b88b057753aec115416e
 +@pytest.mark.parametrize(
 +    "error",
 +    [
++        "403: Access denied to team404/.github-private",
++        (
++            "Refusing HTTP redirect (302) from "
++            f"https://{HOST}/api/v4/projects/team404%2F.github-private to login"
++        ),
++        "Timeout fetching policy from team404/.github-private",
++    ],
++)
++def test_project_path_containing_404_does_not_turn_fetch_failure_into_absence(tmp_path, error):
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=(None, error),
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=PROJECT_WITH_404,
++            host=HOST,
++            project_root=tmp_path,
++        )
++
++    assert result.outcome == "cache_miss_fetch_fail"
++    assert result.policy is None
++    assert result.error == error
++    assert result.fetch_error == error
++
++
++@pytest.mark.parametrize(
++    "error",
++    [
++        "403: Access denied to team404/.github-private",
++        (
++            "Refusing HTTP redirect (302) from "
++            f"https://{HOST}/api/v4/projects/team404%2F.github-private to login"
++        ),
++        "Timeout fetching policy from team404/.github-private",
++    ],
++)
++def test_project_path_containing_404_still_uses_stale_fallback(tmp_path, error):
++    expected = _make_stale_cache(tmp_path, repo_ref=REF_WITH_404)
++    with patch.object(
++        discovery,
++        "_fetch_gitlab_contents",
++        return_value=(None, error),
++    ):
++        result = _gitlab_repo_fetch()(
++            project_path=PROJECT_WITH_404,
++            host=HOST,
++            project_root=tmp_path,
++        )
++
++    assert result.outcome == "cached_stale"
++    assert result.policy == expected
++    assert result.fetch_error == error
++
++
++@pytest.mark.parametrize(
++    "error",
++    [
 +        "401: Authentication required for tc-platform/.github-private",
 +        "403: Access denied to tc-platform/.github-private",
 +        "Refusing HTTP redirect (302) from source to target",
@@ -632,6 +711,37 @@ index 0000000000000000000000000000000000000000..fd9612be6852b88b057753aec115416e
 +        }
 +        assert request_call.kwargs["timeout"] == 10
 +        assert request_call.kwargs["allow_redirects"] is False
++
++
++def test_transport_scopes_environment_token_to_gitlab_host(monkeypatch):
++    github_token = "ghp-must-not-cross-host"
++    gitlab_token = "glpat-gitlab-only"
++    monkeypatch.setenv("GITHUB_APM_PAT", github_token)
++    monkeypatch.setenv("GITLAB_APM_PAT", gitlab_token)
++    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
++    monkeypatch.delenv("GH_TOKEN", raising=False)
++    monkeypatch.delenv("GITLAB_TOKEN", raising=False)
++
++    with (
++        patch(
++            "apm_cli.core.token_manager.subprocess.run",
++            side_effect=AssertionError("environment token lookup reached credential command"),
++        ) as credential_command,
++        patch.object(
++            discovery.requests,
++            "get",
++            return_value=_response(200, POLICY_YAML),
++        ) as get,
++    ):
++        content, error = _gitlab_transport()(LEAF_PROJECT, "apm-policy.yml", host=HOST)
++
++    assert content == POLICY_YAML
++    assert error is None
++    headers = get.call_args.kwargs["headers"]
++    assert headers["PRIVATE-TOKEN"] == gitlab_token
++    assert github_token not in headers.values()
++    assert "Authorization" not in headers
++    credential_command.assert_not_called()
 +
 +
 +def test_transport_200_on_main_does_not_try_master():
