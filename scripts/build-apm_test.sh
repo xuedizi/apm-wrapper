@@ -47,8 +47,12 @@ grep -q 'src/apm_cli/drift.py' patches/literal-ref-refresh.patch \
 	|| fail "literal ref refresh patch should own the canonical ref-recheck gate"
 grep -q 'src/apm_cli/install/phases/resolve.py' patches/literal-ref-refresh.patch \
 	|| fail "literal ref refresh patch should wire resolve-time hash expectations"
-grep -q 'src/apm_cli/install/phases/lockfile.py' patches/literal-ref-refresh.patch \
-	|| fail "literal ref refresh patch should preserve frozen marketplace provenance"
+if grep -q 'src/apm_cli/install/phases/lockfile.py' patches/literal-ref-refresh.patch; then
+	fail "literal ref refresh patch must not modify lockfile provenance"
+fi
+if grep -qi 'marketplace.provenance\|marketplace_provenance' patches/literal-ref-refresh.patch; then
+	fail "literal ref refresh patch must not contain Marketplace provenance behavior"
+fi
 grep -q 'tests/integration/test_literal_ref_refresh_convergence.py' \
 	patches/literal-ref-refresh.patch \
 	|| fail "literal ref refresh patch should carry its hermetic convergence regression"

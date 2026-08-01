@@ -23,8 +23,7 @@ The wrapper intentionally carries two downstream patches:
 - `literal-ref-refresh.patch` makes an explicit changed literal ref materialize
   before its manifest is traversed, so one `--refresh` command converges the
   transitive graph. It separately tracks declared ref drift and semver tag
-  drift, preserving content-hash rejection when an unchanged tag moves. It
-  also carries Marketplace origin metadata across byte-identical frozen replay.
+  drift, preserving content-hash rejection when an unchanged tag moves.
 
 Marketplace registration, package installation, lockfiles, audit, policy
 discovery, and frozen repair otherwise use standard APM 0.26 behavior. TCLI owns

@@ -14,8 +14,7 @@ Out-of-tree patches against upstream `microsoft/apm`, applied by
   materialization owner before traversing its manifest, then marks only
   declared ref changes or legitimate semver tag changes as expected content
   hash changes. Its hermetic tests cover one-command parent/child convergence,
-  no redundant download, rejection of an unchanged moved tag, and frozen
-  Marketplace provenance preservation.
+  no redundant download, and rejection of an unchanged moved tag.
 
 No Marketplace, policy, registry, safe-install, or attestation behavior is
 patched downstream. Those capabilities remain owned by standard APM 0.26,
