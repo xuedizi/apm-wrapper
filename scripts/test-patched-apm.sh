@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply every downstream patch to the pinned upstream tag and run the
+# Apply every active downstream patch to the pinned upstream tag and run the
 # regressions that must pass before any native release build starts.
 set -euo pipefail
 

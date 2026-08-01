@@ -16,9 +16,10 @@ pass "build-apm.sh is executable"
 	|| fail "scripts/test-patched-apm.sh must be an executable release gate"
 
 [ -f patches/APM_VERSION ] || fail "patches/APM_VERSION must pin upstream microsoft/apm"
-[ -f patches/ide.patch ] || fail "patches/ide.patch must carry TAC IDE target support"
-[ -f patches/literal-ref-refresh.patch ] \
-	|| fail "patches/literal-ref-refresh.patch must carry single-command literal ref refresh"
+[ -f patches/ide.patch ] && [ ! -L patches/ide.patch ] \
+	|| fail "patches/ide.patch must be a real regular file with TAC IDE target support"
+[ -f patches/literal-ref-refresh.patch ] && [ ! -L patches/literal-ref-refresh.patch ] \
+	|| fail "patches/literal-ref-refresh.patch must be a real regular file"
 [ -f disabled-patches/README.md ] \
 	|| fail "disabled-patches/README.md must document inactive patch policy"
 [ -f disabled-patches/marketplace-provenance.patch ] \
@@ -28,7 +29,12 @@ pass "build-apm.sh is executable"
 [ "$(cat patches/APM_VERSION)" = "v0.26.0" ] \
 	|| fail "patches/APM_VERSION must pin upstream v0.26.0"
 [ ! -f patches/codebuddy.patch ] || fail "patches/codebuddy.patch should be renamed to patches/ide.patch"
-patch_names=$(find patches -maxdepth 1 -type f -name '*.patch' -exec basename {} \; | sort)
+shopt -s nullglob
+patch_names=$(
+	for patch_path in patches/*.patch; do
+		basename "$patch_path"
+	done | sort
+)
 [ "$patch_names" = "$(printf '%s\n' ide.patch literal-ref-refresh.patch)" ] \
 	|| fail "expected exactly active ide.patch and literal-ref-refresh.patch, got: $patch_names"
 pass "active and archived patch inputs are separated"

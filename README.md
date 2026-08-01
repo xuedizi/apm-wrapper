@@ -94,9 +94,9 @@ upload: the runner and Python architecture, the executable's native
 ELF/Mach-O/PE header, and a native `apm --version` smoke test. The release job
 verifies the exact six-archive set, stages only those archives, generates and
 verifies the checksum/size manifest, and only then creates the GitHub Release.
-Before the six native builds start, the `patch-tests` job applies all patches
-to a clean pinned checkout and runs the IDE catalog/partitioning, literal-ref,
-hash-integrity, and hermetic graph-convergence regressions.
+Before the six native builds start, the `patch-tests` job applies all active
+patches to a clean pinned checkout and runs the IDE catalog/partitioning,
+literal-ref, hash-integrity, and hermetic graph-convergence regressions.
 
 Remove the active literal-ref behavior patch only after a released upstream tag
 contains equivalent behavior and regression coverage. Rollback must restore the
