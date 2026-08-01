@@ -26,7 +26,9 @@ The patch has two responsibilities:
    upstream APM 0.26.
 2. Route GitLab organization-policy candidates from `_auto_discover` to the
    GitLab REST v4 raw-file endpoint instead of `_fetch_from_repo` and the
-   GitHub `/api/v3/repos` endpoint.
+   GitHub `/api/v3/repos` endpoint. Preserve that backend while resolving an
+   auto-discovered GitLab policy's same-host `extends` chain; otherwise a valid
+   leaf policy would still fail when its parent used the GitHub API path.
 
 The GitLab fetch path must preserve current APM 0.26 semantics for candidate
 ordering, `cache_only`, fresh/stale cache handling, policy parsing warnings,
@@ -47,6 +49,8 @@ upstream tree, not a wrapper-only imitation. Focused regressions cover:
 - zero-configuration recognition of `gitlab.auto-pai.cn`;
 - environment-configured GitLab hosts still being additive;
 - routing organization-policy lookup to GitLab REST v4 rather than GitHub API;
+- same-host parent-policy inheritance retaining the GitLab backend, including
+  cold fetch and warm merged-cache behavior;
 - successful policy content, `main` to `master` fallback, and token header;
 - 404 absence and fail-closed authentication/redirect failures;
 - `cache_only` making no network request;

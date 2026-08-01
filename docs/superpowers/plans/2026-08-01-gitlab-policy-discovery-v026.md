@@ -87,7 +87,7 @@ _DEFAULT_GITLAB_HOSTS = ("gitlab.auto-pai.cn",)
 
 Make `_get_gitlab_hosts_list()` return an ordered union of environment entries and this tuple. Leave the existing `GITHUB_HOST` precedence branch unchanged; `has_github_gitlab_host_env_conflict()` continues to use the same list helper.
 
-In `policy/discovery.py`, import `is_gitlab_hostname`, set `is_gitlab = not is_ado and is_gitlab_hostname(host)`, and add a sibling branch calling `_fetch_from_gitlab_repo` with the current candidate and unchanged `no_cache`, `expected_hash`, and `cache_only` values.
+In `policy/discovery.py`, import `is_gitlab_hostname`, set `is_gitlab = not is_ado and is_gitlab_hostname(host)`, and add a sibling branch calling `_fetch_from_gitlab_repo` with the current candidate and unchanged `no_cache`, `expected_hash`, and `cache_only` values. Give the helper a `project_path` argument so the same transport can preserve nested GitLab project identities.
 
 - [ ] **Step 2: Run the initial focused tests and verify GREEN**
 
@@ -111,6 +111,12 @@ _fetch_gitlab_contents:
   tries main then master only after 404
   returns raw response text on 200
   refuses redirects and distinguishes authentication failures
+
+_fetch_chain_parent / discover_policy_with_chain:
+  same-host owner/repo parent retains the GitLab v4 backend
+  explicit host-qualified parent retains the GitLab v4 backend
+  cold leaf plus parent merge succeeds and the warm read makes no network call
+  cross-host parent remains rejected before credentials or HTTP are consulted
 ```
 
 Mock only HTTP, token, and cache boundaries. Assert `PolicyFetchResult` and URL/header behavior, not call count alone.
@@ -121,7 +127,9 @@ Expected: explicit failed assertions because the two GitLab helpers are missing.
 
 - [ ] **Step 5: Implement the two minimal helpers**
 
-Implement `_fetch_from_gitlab_repo` by following current `_fetch_from_ado_repo` for cache read, `cache_only`, stale fallback, garbage detection, hash verification, parser warnings, conditional cache write, and result construction. Change only repository identity and transport.
+Implement `_fetch_from_gitlab_repo` by following current `_fetch_from_ado_repo` for cache read, `cache_only`, stale fallback, garbage detection, hash verification, parser warnings, conditional cache write, and result construction. Accept `project_path` plus `host`; use `org:{host}/{project_path}` as the source/cache identity. Change only repository identity and transport.
+
+Add the smallest GitLab branch to `_fetch_chain_parent`. Leave URL/file and ADO branches unchanged. For `extends: org`, retain normal auto-discovery. For a same-host `owner/repo` or explicit `gitlab-host/owner/repo` parent, normalize the project path, preserve the already validated `leaf_host`, and call `_fetch_from_gitlab_repo` with `cache_only` forwarded. Do not weaken `_validate_extends_host` or add cross-host support.
 
 Implement `_fetch_gitlab_contents` with this core:
 
@@ -267,7 +275,17 @@ Change only active contracts and new `v0.6.4` records; preserve historical immut
 
 - [ ] **Step 3: Change exact pin tests first and verify RED**
 
-Update fixtures/assertions to `.3.3` while leaving `tac/Makefile` at `.3.2`, then run focused shell, Python, and lifecycle tests. Expected: failures showing the production source is still `.3.2`.
+Update fixtures/assertions to `.3.3` while leaving `tac/Makefile` at `.3.2`, then run:
+
+```bash
+bash scripts/install_test.sh
+bash scripts/release_test.sh
+python3 scripts/verify-published-release_test.py
+bash scripts/asset-lifecycle/direct-e2e-test.sh
+bash scripts/asset-lifecycle/marketplace-e2e-test.sh
+```
+
+Expected: failures showing the production source is still `.3.2`.
 
 - [ ] **Step 4: Change the production source of truth**
 
@@ -286,7 +304,12 @@ make integration-test
 make release-check VERSION=v0.6.4
 ```
 
-Also run real Direct and Marketplace five-stage E2Es with formal `.3.3`, preserving the Marketplace registry byte-for-byte.
+Also run the real five-stage drivers with formal `.3.3`, preserving the Marketplace registry byte-for-byte:
+
+```bash
+make asset-lifecycle-e2e
+make asset-lifecycle-marketplace-e2e
+```
 
 - [ ] **Step 6: Verify minimal diff and commit**
 
