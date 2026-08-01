@@ -34,7 +34,10 @@ hash-pin verification, fail-closed errors, and cache writes. It tries the
 conventional `main` and `master` refs because the raw-file endpoint requires a
 ref and the policy repository default branch is otherwise unknown. A 404 on
 both refs means absent; authentication, authorization, redirect, timeout, and
-other HTTP failures remain errors.
+other HTTP failures remain errors. Private-repository authentication reuses
+APM's existing `_get_token_for_host(host)` resolver and sends the resolved
+credential through GitLab's `PRIVATE-TOKEN` header; no credential or new token
+source is introduced downstream.
 
 ## Tests and Release Gates
 
