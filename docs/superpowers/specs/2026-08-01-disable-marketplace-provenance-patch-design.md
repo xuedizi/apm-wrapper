@@ -65,7 +65,9 @@ patches. `disabled-patches/README.md` will record:
 - the observed lockfile metadata-loss scenario;
 - the decision to prefer upstream behavior until operational evidence warrants
   a downstream fix;
-- that the patch is not built, tested, or shipped;
+- that the patch is not applied to builds, its behavioral regression is not
+  selected by the active patch suite, and it is not embedded in platform
+  sidecar archives; it remains present in repository source archives;
 - that re-enabling it is a reviewed source change, not a file-copy shortcut.
 
 Re-enabling requires moving the patch back into `patches/`, restoring its
@@ -80,7 +82,9 @@ The change is accepted when:
 1. `patches/` contains exactly the two active patches.
 2. `disabled-patches/marketplace-provenance.patch` is byte-for-byte identical
    to the previously active patch.
-3. Build and test scripts reference active patches only.
+3. Build and patched-upstream regression scripts consume active patches only;
+   the static contract test may reference `disabled-patches/` solely to assert
+   that the inactive archive exists and cannot be mistaken for an active patch.
 4. The wrapper static build contract passes.
 5. The patched-upstream regression suite passes with only the active patches.
 6. Package-release and executable-architecture self-tests remain green.
