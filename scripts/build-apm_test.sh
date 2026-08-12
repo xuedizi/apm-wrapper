@@ -239,6 +239,8 @@ grep -q 'apm_cli.cli' scripts/build-apm.sh \
 	|| fail "build-apm.sh should package apm_cli.cli"
 grep -q -- '--copy-metadata apm-cli' scripts/build-apm.sh \
 	|| fail "build-apm.sh should copy apm-cli metadata so --version works"
+grep -q -- '--collect-submodules rich._unicode_data' scripts/build-apm.sh \
+	|| fail "build-apm.sh should collect Rich Unicode data submodules"
 pass "build-apm.sh is configured for standalone executable packaging"
 
 python3 - <<'PY'
@@ -337,6 +339,10 @@ required_fragments = [
     'echo "SMOKE_EVIDENCE platform=${{ matrix.platform }} version=$apm_version"',
     '"$binary" install ../package --target codebuddy',
     'test -f "$smoke_root/codebuddy/.codebuddy/skills/smoke/SKILL.md"',
+    '"$binary" deps list | tee "$smoke_root/deps-list.txt"',
+    'grep -Fq "_local/package" "$smoke_root/deps-list.txt"',
+    'grep -Eq "_local/package.*[[:space:]]1[[:space:]]" "$smoke_root/deps-list.txt"',
+    'echo "DEPS_LIST_SMOKE_EVIDENCE platform=${{ matrix.platform }} package=_local/package skills=1"',
     '"$binary" install ../package --target tc',
     'test -f "$smoke_root/tc/.claude/skills/smoke/SKILL.md"',
     "path: dist/downloads",
@@ -362,6 +368,7 @@ ordered_fragments = [
     "python scripts/verify-executable-arch.py",
     'apm_version=$("dist/raw/${{ matrix.exe }}" --version)',
     '"$binary" install ../package --target codebuddy',
+    'echo "DEPS_LIST_SMOKE_EVIDENCE platform=${{ matrix.platform }} package=_local/package skills=1"',
     '"$binary" install ../package --target tc',
     "scripts/package-release.sh \\",
     "uses: actions/upload-artifact@v4",

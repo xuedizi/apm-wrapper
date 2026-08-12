@@ -153,6 +153,13 @@ jobs:
           )
           test -f "$smoke_root/codebuddy/.codebuddy/skills/smoke/SKILL.md"
           (
+            cd "$smoke_root/codebuddy"
+            "$binary" deps list | tee "$smoke_root/deps-list.txt"
+          )
+          grep -Fq "_local/package" "$smoke_root/deps-list.txt"
+          grep -Eq "_local/package.*[[:space:]]1[[:space:]]" "$smoke_root/deps-list.txt"
+          echo "DEPS_LIST_SMOKE_EVIDENCE platform=${{ matrix.platform }} package=_local/package skills=1"
+          (
             cd "$smoke_root/tc"
             "$binary" install ../package --target tc
           )

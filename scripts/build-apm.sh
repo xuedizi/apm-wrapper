@@ -131,6 +131,7 @@ PYI_BUILD="$WORK/pyinstaller-build"
 		--specpath "$WORK" \
 		--copy-metadata apm-cli \
 		--hidden-import apm_cli.cli \
+		--collect-submodules rich._unicode_data \
 		"$WORK/apm_launcher.py")
 
 exe="$PYI_DIST/apm"
