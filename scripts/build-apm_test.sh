@@ -203,17 +203,6 @@ grep -q '^  patch-tests:$' "$workflow" \
 	|| fail "release workflow must define a patch-tests job"
 grep -q 'scripts/test-patched-apm.sh' "$workflow" \
 	|| fail "release workflow patch-tests job must run the patched upstream regressions"
-python3 - "$workflow" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-workflow = Path(sys.argv[1]).read_text(encoding="utf-8")
-build = re.search(r"(?ms)^  build:\n(?P<body>.*?)(?=^  [a-z][a-z-]*:\n)", workflow)
-if build is None or re.search(r"(?m)^    needs: patch-tests$", build.group("body")) is None:
-    raise SystemExit("FAIL: six-platform build must need the patch-tests release gate")
-PY
-pass "release workflow blocks native builds on patched upstream regressions"
 
 for forbidden in safe-ensure SAFE_ENSURE --if-missing --expect-name \
 	REGISTRY_CREATE_EVIDENCE REGISTRY_REWRITE_EVIDENCE WINDOWS_LOCK_EVIDENCE \
@@ -331,6 +320,9 @@ build_match = re.search(
 if build_match is None:
     fail("release workflow must define a build job")
 build_workflow = build_match.group("body")
+if re.search(r"(?m)^    needs: patch-tests$", build_workflow) is None:
+    fail("six-platform build must need the patch-tests release gate")
+print("PASS: release workflow blocks native builds on patched upstream regressions")
 
 required_fragments = [
     "uses: actions/setup-python@v6",
