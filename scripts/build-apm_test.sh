@@ -325,6 +325,13 @@ expected_matrix = [
 if items != expected_matrix:
     fail(f"release workflow matrix mismatch: expected={expected_matrix!r}, got={items!r}")
 
+build_match = re.search(
+    r"(?ms)^  build:\n(?P<body>.*?)(?=^  \S[^:\n]*:\s*(?:#.*)?$|\Z)", workflow
+)
+if build_match is None:
+    fail("release workflow must define a build job")
+build_workflow = build_match.group("body")
+
 required_fragments = [
     "uses: actions/setup-python@v6",
     'python-version: "3.13"',
@@ -368,6 +375,9 @@ ordered_fragments = [
     "python scripts/verify-executable-arch.py",
     'apm_version=$("dist/raw/${{ matrix.exe }}" --version)',
     '"$binary" install ../package --target codebuddy',
+    '"$binary" deps list | tee "$smoke_root/deps-list.txt"',
+    'grep -Fq "_local/package" "$smoke_root/deps-list.txt"',
+    'grep -Eq "_local/package.*[[:space:]]1[[:space:]]" "$smoke_root/deps-list.txt"',
     'echo "DEPS_LIST_SMOKE_EVIDENCE platform=${{ matrix.platform }} package=_local/package skills=1"',
     '"$binary" install ../package --target tc',
     "scripts/package-release.sh \\",
@@ -375,12 +385,17 @@ ordered_fragments = [
 ]
 positions = []
 for fragment in ordered_fragments:
-    position = workflow.find(fragment)
+    if build_workflow.count(fragment) != 1:
+        fail(f"release build job must contain exactly one ordered step: {fragment}")
+    position = build_workflow.find(fragment)
     if position < 0:
         fail(f"release workflow missing ordered step: {fragment}")
     positions.append(position)
 if positions != sorted(positions):
-    fail("release build steps must follow install/tool/arch/build/header/smoke/package/upload order")
+    fail(
+        "release build steps must follow install/tool/arch/build/header/"
+        "IDE-install/deps-list/deps-assert/evidence/TC/package/upload order"
+    )
 
 release_fragments = [
     "path: dist/downloads",
