@@ -94,8 +94,8 @@ platform:
 
 | Platform | GitHub-hosted runner | Executable |
 | --- | --- | --- |
-| `linux/amd64` | `ubuntu-24.04` | `apm` |
-| `linux/arm64` | `ubuntu-24.04-arm` | `apm` |
+| `linux/amd64` | `ubuntu-22.04` | `apm` |
+| `linux/arm64` | `ubuntu-22.04-arm` | `apm` |
 | `darwin/amd64` | `macos-15-intel` | `apm` |
 | `darwin/arm64` | `macos-15` | `apm` |
 | `windows/amd64` | `windows-2025` | `apm.exe` |

@@ -16,7 +16,7 @@ permissions:
 jobs:
   patch-tests:
     name: verify downstream patches
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v6
@@ -37,13 +37,13 @@ jobs:
       matrix:
         include:
           - platform: linux/amd64
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
             runner_arch: X64
             python_machine: x86_64
             exe: apm
             artifact: apm-linux-amd64
           - platform: linux/arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
             runner_arch: ARM64
             python_machine: aarch64
             exe: apm
@@ -185,7 +185,7 @@ jobs:
 
   release:
     name: publish GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs: build
     steps:
       - uses: actions/checkout@v4

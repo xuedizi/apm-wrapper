@@ -264,7 +264,7 @@ for block in re.split(r"(?m)^\s{10}- ", matrix_match.group("body")):
 expected_matrix = [
     {
         "platform": "linux/amd64",
-        "runner": "ubuntu-24.04",
+        "runner": "ubuntu-22.04",
         "runner_arch": "X64",
         "python_machine": "x86_64",
         "exe": "apm",
@@ -272,7 +272,7 @@ expected_matrix = [
     },
     {
         "platform": "linux/arm64",
-        "runner": "ubuntu-24.04-arm",
+        "runner": "ubuntu-22.04-arm",
         "runner_arch": "ARM64",
         "python_machine": "aarch64",
         "exe": "apm",
