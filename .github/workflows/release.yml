@@ -111,6 +111,7 @@ jobs:
           WRAPPER_VERSION: ${{ inputs.version || github.ref_name }}
         shell: bash
         run: |
+          mkdir -p dist/raw dist/release
           docker build -t apm-ubuntu20-builder -f .github/docker/linux-build.Dockerfile .github/docker
           docker run --rm -v "$PWD:/workspace" -w /workspace \
             -e WRAPPER_VERSION apm-ubuntu20-builder \
