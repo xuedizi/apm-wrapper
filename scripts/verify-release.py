@@ -15,7 +15,6 @@ from typing import Any
 
 EXPECTED = {
     "apm-linux-amd64": ("apm-linux-amd64.tar.gz", "apm"),
-    "apm-linux-arm64": ("apm-linux-arm64.tar.gz", "apm"),
     "apm-darwin-amd64": ("apm-darwin-amd64.tar.gz", "apm"),
     "apm-darwin-arm64": ("apm-darwin-arm64.tar.gz", "apm"),
     "apm-windows-amd64": ("apm-windows-amd64.tar.gz", "apm.exe"),
@@ -269,7 +268,7 @@ def main() -> int:
     try:
         if args.archives_only:
             verify_archives(args.downloads)
-            print("OK: verified six release archive artifacts")
+            print("OK: verified five release archive artifacts")
         else:
             verify_manifest(
                 args.manifest,

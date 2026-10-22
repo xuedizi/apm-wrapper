@@ -46,12 +46,6 @@ jobs:
             python_machine: x86_64
             exe: apm
             artifact: apm-linux-amd64
-          - platform: linux/arm64
-            runner: ubuntu-22.04-arm
-            runner_arch: ARM64
-            python_machine: aarch64
-            exe: apm
-            artifact: apm-linux-arm64
           - platform: darwin/amd64
             runner: macos-15-intel
             runner_arch: X64
@@ -231,7 +225,6 @@ jobs:
           mkdir -p dist/release
           artifacts=(
             apm-linux-amd64
-            apm-linux-arm64
             apm-darwin-amd64
             apm-darwin-arm64
             apm-windows-amd64

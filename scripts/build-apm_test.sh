@@ -271,14 +271,6 @@ expected_matrix = [
         "artifact": "apm-linux-amd64",
     },
     {
-        "platform": "linux/arm64",
-        "runner": "ubuntu-22.04-arm",
-        "runner_arch": "ARM64",
-        "python_machine": "aarch64",
-        "exe": "apm",
-        "artifact": "apm-linux-arm64",
-    },
-    {
         "platform": "darwin/amd64",
         "runner": "macos-15-intel",
         "runner_arch": "X64",
@@ -321,7 +313,7 @@ if build_match is None:
     fail("release workflow must define a build job")
 build_workflow = build_match.group("body")
 if re.search(r"(?m)^    needs: patch-tests$", build_workflow) is None:
-    fail("six-platform build must need the patch-tests release gate")
+    fail("five-platform build must need the patch-tests release gate")
 print("PASS: release workflow blocks native builds on patched upstream regressions")
 
 required_fragments = [
@@ -403,7 +395,7 @@ if any(position < 0 for position in release_positions):
 if release_positions != sorted(release_positions):
     fail("release aggregation must verify, stage, manifest, verify, then publish")
 
-print("PASS: release workflow enforces the six-platform native release contract")
+print("PASS: release workflow enforces the five-platform native release contract")
 PY
 
 echo "ALL PASS"

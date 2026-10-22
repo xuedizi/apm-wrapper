@@ -41,7 +41,6 @@ chmod 0755 "$tmp/in/apm"
 
 platforms=(
 	linux/amd64
-	linux/arm64
 	darwin/amd64
 	darwin/arm64
 	windows/amd64
@@ -60,10 +59,10 @@ for platform in "${platforms[@]}"; do
 done
 
 python3 scripts/verify-release.py --archives-only --downloads "$downloads"
-pass "complete six-platform archive set passes"
+pass "complete five-platform archive set passes"
 
 cp -R "$downloads" "$tmp/missing"
-rm -rf "$tmp/missing/apm-linux-arm64"
+rm -rf "$tmp/missing/apm-linux-amd64"
 expect_failure "missing artifact directory" "top-level artifact directories" \
 	python3 scripts/verify-release.py --archives-only --downloads "$tmp/missing"
 
@@ -149,7 +148,7 @@ python3 scripts/verify-release.py \
 	--release-dir "$release_dir" \
 	--version "$version" \
 	--upstream "$upstream"
-pass "complete six-platform manifest passes"
+pass "complete five-platform manifest passes"
 
 cp -R "$release_dir" "$tmp/symlink-release"
 rm -f "$tmp/symlink-release/apm-linux-amd64.tar.gz"

@@ -95,18 +95,17 @@ platform:
 | Platform | GitHub-hosted runner | Executable |
 | --- | --- | --- |
 | `linux/amd64` | `ubuntu-22.04` | `apm` |
-| `linux/arm64` | `ubuntu-22.04-arm` | `apm` |
 | `darwin/amd64` | `macos-15-intel` | `apm` |
 | `darwin/arm64` | `macos-15` | `apm` |
 | `windows/amd64` | `windows-2025` | `apm.exe` |
 | `windows/arm64` | `windows-11-arm` | `apm.exe` |
 
 Linux runners compile inside `.github/docker/linux-build.Dockerfile`, based on
-`ubuntu:20.04` (glibc 2.31), for both amd64 and arm64. The runner's Ubuntu
+`ubuntu:20.04` (glibc 2.31), for amd64 only. The runner's Ubuntu
 version is only the Docker host. Each Linux binary must pass `--version` and
 `--help` in fresh Ubuntu 20.04 and 22.04 containers before packaging.
 
-Manual workflow runs upload the six platform archives and the verified release
+Manual workflow runs upload the five platform archives and the verified release
 manifest as Actions artifacts. Set `publish_release: true` to also publish a
 GitHub Release; version-tag pushes continue to publish automatically.
 
@@ -115,9 +114,9 @@ The GitHub-hosted Windows ARM runner is currently in public preview.
 Every build records three independent architecture evidence layers before
 upload: the runner and Python architecture, the executable's native
 ELF/Mach-O/PE header, and a native `apm --version` smoke test. The release job
-verifies the exact six-archive set, stages only those archives, generates and
+verifies the exact five-archive set, stages only those archives, generates and
 verifies the checksum/size manifest, and only then creates the GitHub Release.
-Before the six native builds start, the `patch-tests` job applies all active
+Before the five native builds start, the `patch-tests` job applies all active
 patches to a clean pinned checkout and runs the GitLab policy/host, IDE
 catalog/partitioning, literal-ref, hash-integrity, and hermetic
 graph-convergence regressions. The archived Marketplace provenance regression
