@@ -101,6 +101,15 @@ platform:
 | `windows/amd64` | `windows-2025` | `apm.exe` |
 | `windows/arm64` | `windows-11-arm` | `apm.exe` |
 
+Linux runners compile inside `.github/docker/linux-build.Dockerfile`, based on
+`ubuntu:20.04` (glibc 2.31), for both amd64 and arm64. The runner's Ubuntu
+version is only the Docker host. Each Linux binary must pass `--version` and
+`--help` in fresh Ubuntu 20.04 and 22.04 containers before packaging.
+
+Manual workflow runs upload the six platform archives and the verified release
+manifest as Actions artifacts. Set `publish_release: true` to also publish a
+GitHub Release; version-tag pushes continue to publish automatically.
+
 The GitHub-hosted Windows ARM runner is currently in public preview.
 
 Every build records three independent architecture evidence layers before

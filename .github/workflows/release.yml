@@ -9,6 +9,10 @@ on:
       version:
         description: "Release version, for example v0.13.0-tac.v0.1.0"
         required: true
+      publish_release:
+        description: "Publish a GitHub Release after building (tag pushes always publish)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -101,7 +105,32 @@ jobs:
             exit 1
           fi
           echo "ARCH_EVIDENCE platform=${{ matrix.platform }} runner=$RUNNER_ARCH python=$python_machine"
+      - name: Build Linux sidecar on Ubuntu 20.04
+        if: runner.os == 'Linux'
+        env:
+          WRAPPER_VERSION: ${{ inputs.version || github.ref_name }}
+        shell: bash
+        run: |
+          docker build -t apm-ubuntu20-builder -f .github/docker/linux-build.Dockerfile .github/docker
+          docker run --rm -v "$PWD:/workspace" -w /workspace \
+            -e WRAPPER_VERSION apm-ubuntu20-builder \
+            bash -c 'getconf GNU_LIBC_VERSION; bash scripts/build-apm.sh --out=dist/raw'
+      - name: Verify Linux compatibility on Ubuntu 20.04 and 22.04
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          for ubuntu in 20.04 22.04; do
+            docker run --rm -v "$PWD/dist/raw:/sidecar:ro" "ubuntu:$ubuntu" \
+              bash -c 'set -euo pipefail
+                apt-get update -qq
+                apt-get install -y --no-install-recommends ca-certificates git libgcc-s1 libstdc++6
+                ldd /sidecar/apm
+                /sidecar/apm --version
+                /sidecar/apm --help >/dev/null'
+            echo "LINUX_COMPAT_EVIDENCE platform=${{ matrix.platform }} ubuntu=$ubuntu"
+          done
       - name: Build APM sidecar
+        if: runner.os != 'Linux'
         shell: bash
         run: |
           scripts/build-apm.sh --out dist/raw
@@ -236,7 +265,13 @@ jobs:
             --release-dir dist/release \
             --version "$version" \
             --upstream "$upstream"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verified-release
+          path: dist/release/*
+          if-no-files-found: error
       - name: Publish release
+        if: github.event_name == 'push' || inputs.publish_release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
